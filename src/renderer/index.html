@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code Notifier</title>
+</head>
+<body>
+  <div id="app">
+    <!-- Permission view -->
+    <div id="permission-view" class="view hidden">
+      <div class="header">
+        <span id="danger-badge" class="badge"></span>
+        <span id="tool-name" class="tool-name"></span>
+        <span id="project-name" class="project-name hidden"></span>
+        <span id="queue-badge" class="queue-badge hidden"></span>
+        <button id="btn-skip" class="btn-skip">&times;</button>
+      </div>
+
+      <div class="command-block">
+        <code id="command-text"></code>
+      </div>
+
+      <div class="description">
+        <p id="description-text"></p>
+      </div>
+
+      <div class="actions">
+        <button id="btn-deny" class="btn btn-deny">拒否</button>
+        <button id="btn-allow" class="btn btn-allow">許可</button>
+      </div>
+
+      <div class="shortcuts">
+        <span><kbd>Enter</kbd> 許可</span>
+        <span><kbd>Esc</kbd> 拒否</span>
+      </div>
+    </div>
+
+    <!-- Notification view -->
+    <div id="notification-view" class="view hidden">
+      <div class="notification-header">
+        <span id="notification-icon" class="notification-icon"></span>
+        <span id="notification-title" class="notification-title"></span>
+        <button id="btn-dismiss" class="btn-skip">&times;</button>
+      </div>
+      <div class="notification-body">
+        <p id="notification-message"></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

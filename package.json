@@ -1,0 +1,40 @@
+{
+  "name": "claude-code-notifier",
+  "version": "1.0.0",
+  "description": "macOS menu bar app for Claude Code permission notifications",
+  "main": ".webpack/main",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "setup": "tsx scripts/setup.ts"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.6.0",
+    "@electron-forge/maker-dmg": "^7.6.0",
+    "@electron-forge/maker-zip": "^7.6.0",
+    "@electron-forge/plugin-webpack": "^7.6.0",
+    "@vercel/webpack-asset-relocator-loader": "^1.7.4",
+    "css-loader": "^7.1.2",
+    "electron": "^33.3.1",
+    "node-loader": "^2.1.0",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "claude-code",
+    "notifier",
+    "electron",
+    "menubar"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.1"
+  }
+}

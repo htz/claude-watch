@@ -6,13 +6,13 @@
 #   ./scripts/test-popup.sh multi        # 3件同時送信
 #   ./scripts/test-popup.sh notify       # 通知送信
 
-HOST="http://127.0.0.1:19400"
+SOCKET="$HOME/.claude-code-notifier/notifier.sock"
 
 send_permission() {
   local cmd="$1"
   local desc="$2"
   local cwd="$3"
-  curl -s -X POST "$HOST/permission" \
+  curl -s --unix-socket "$SOCKET" -X POST "http://localhost/permission" \
     -H 'Content-Type: application/json' \
     -d "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$cmd\",\"description\":\"$desc\"},\"session_cwd\":\"$cwd\"}"
 }
@@ -21,7 +21,7 @@ send_tool_permission() {
   local tool_name="$1"
   local tool_input="$2"
   local cwd="$3"
-  curl -s -X POST "$HOST/permission" \
+  curl -s --unix-socket "$SOCKET" -X POST "http://localhost/permission" \
     -H 'Content-Type: application/json' \
     -d "{\"tool_name\":\"$tool_name\",\"tool_input\":$tool_input,\"session_cwd\":\"$cwd\"}"
 }
@@ -31,14 +31,14 @@ send_notification() {
   local title="${2:-通知}"
   local type="${3:-info}"
   local cwd="${4:-$(pwd)}"
-  curl -s -X POST "$HOST/notification" \
+  curl -s --unix-socket "$SOCKET" -X POST "http://localhost/notification" \
     -H 'Content-Type: application/json' \
     -d "{\"message\":\"$msg\",\"title\":\"$title\",\"type\":\"$type\",\"session_cwd\":\"$cwd\"}"
 }
 
 case "${1:-menu}" in
   health)
-    curl -s "$HOST/health" | python3 -m json.tool
+    curl -s --unix-socket "$SOCKET" "http://localhost/health" | python3 -m json.tool
     ;;
   safe)
     echo "=== SAFE: ls -la ==="

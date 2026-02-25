@@ -17,8 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const NOTIFIER_HOST = '127.0.0.1';
-const NOTIFIER_PORT = 19400;
+const SOCKET_PATH = path.join(os.homedir(), '.claude-code-notifier', 'notifier.sock');
 const TIMEOUT_MS = 300000; // 5 minutes
 
 /**
@@ -80,9 +79,14 @@ function isCommandAllowed(command, patterns) {
  */
 function healthCheck() {
   return new Promise((resolve) => {
+    // Socket file existence check — no HTTP request needed if absent
+    if (!fs.existsSync(SOCKET_PATH)) {
+      resolve(false);
+      return;
+    }
+
     const req = http.request({
-      hostname: NOTIFIER_HOST,
-      port: NOTIFIER_PORT,
+      socketPath: SOCKET_PATH,
       path: '/health',
       method: 'GET',
       timeout: 2000,
@@ -117,8 +121,7 @@ function requestPermission(toolName, toolInput) {
     const body = JSON.stringify({ tool_name: toolName, tool_input: toolInput, session_cwd: process.cwd() });
 
     const req = http.request({
-      hostname: NOTIFIER_HOST,
-      port: NOTIFIER_PORT,
+      socketPath: SOCKET_PATH,
       path: '/permission',
       method: 'POST',
       headers: {

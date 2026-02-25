@@ -9,9 +9,10 @@
  */
 
 const http = require('http');
+const path = require('path');
+const os = require('os');
 
-const NOTIFIER_HOST = '127.0.0.1';
-const NOTIFIER_PORT = 19400;
+const SOCKET_PATH = path.join(os.homedir(), '.claude-code-notifier', 'notifier.sock');
 const TIMEOUT_MS = 5000;
 
 function sendNotification(message, title, type, session_cwd) {
@@ -19,8 +20,7 @@ function sendNotification(message, title, type, session_cwd) {
     const body = JSON.stringify({ message, title, type, session_cwd });
 
     const req = http.request({
-      hostname: NOTIFIER_HOST,
-      port: NOTIFIER_PORT,
+      socketPath: SOCKET_PATH,
       path: '/notification',
       method: 'POST',
       headers: {

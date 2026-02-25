@@ -1,11 +1,11 @@
 import http from 'http';
+import fs from 'fs';
 import path from 'path';
 import { analyzeToolDanger } from '../shared/danger-level';
 import { describeToolAction } from '../shared/tool-classifier';
+import { SOCKET_DIR, SOCKET_PATH } from '../shared/constants';
 import type { PermissionRequest, PermissionResponse, NotificationRequest, QueueItem, PopupData, NotificationPopupData } from '../shared/types';
 
-const PORT = 19400;
-const HOST = '127.0.0.1';
 const PERMISSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 function generateId(): string {
@@ -29,21 +29,22 @@ export class NotifierServer {
 
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // Ensure socket directory exists
+      fs.mkdirSync(SOCKET_DIR, { recursive: true });
+
+      // Clean up stale socket file from previous crash
+      try { fs.unlinkSync(SOCKET_PATH); } catch {}
+
       this.server = http.createServer((req, res) => {
         this.handleRequest(req, res);
       });
 
       this.server.on('error', (err: NodeJS.ErrnoException) => {
-        if (err.code === 'EADDRINUSE') {
-          console.error(`Port ${PORT} is already in use`);
-          reject(err);
-        } else {
-          reject(err);
-        }
+        reject(err);
       });
 
-      this.server.listen(PORT, HOST, () => {
-        console.log(`Notifier server listening on ${HOST}:${PORT}`);
+      this.server.listen(SOCKET_PATH, () => {
+        console.log(`Notifier server listening on ${SOCKET_PATH}`);
         resolve();
       });
     });
@@ -60,6 +61,9 @@ export class NotifierServer {
       this.server.close();
       this.server = null;
     }
+
+    // Clean up socket file
+    try { fs.unlinkSync(SOCKET_PATH); } catch {}
   }
 
   /** ユーザーがポップアップで応答した。次の表示は呼び出し側に委ねる */

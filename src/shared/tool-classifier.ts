@@ -383,3 +383,124 @@ export function classifyTool(toolName: string): string {
   };
   return classifications[toolName] || toolName;
 }
+
+export interface ToolActionDescription {
+  /** コードブロック表示用テキスト */
+  displayText: string;
+  /** 説明文 */
+  detail: string;
+}
+
+/** ファイルパスからファイル名を取得 */
+function basename(filePath: string): string {
+  const parts = filePath.replace(/\\/g, '/').split('/');
+  return parts[parts.length - 1] || filePath;
+}
+
+/** Edit ツールの差分プレビューを生成（長い場合は truncate） */
+function editPreview(toolInput: Record<string, unknown>): string {
+  const filePath = (toolInput.file_path as string) || '';
+  const oldStr = (toolInput.old_string as string) || '';
+  const newStr = (toolInput.new_string as string) || '';
+  const MAX = 200;
+
+  let preview = `📝 ${filePath}`;
+  if (oldStr || newStr) {
+    const truncOld = oldStr.length > MAX ? oldStr.slice(0, MAX) + '…' : oldStr;
+    const truncNew = newStr.length > MAX ? newStr.slice(0, MAX) + '…' : newStr;
+    preview += `\n- ${truncOld}\n+ ${truncNew}`;
+  }
+  return preview;
+}
+
+/** MCP ツール名からサーバー名とメソッド名を抽出 */
+function parseMcpToolName(toolName: string): { server: string; method: string } | null {
+  // mcp__ServerName__methodName
+  const match = toolName.match(/^mcp__([^_]+)__(.+)$/);
+  if (match) return { server: match[1], method: match[2] };
+  return null;
+}
+
+/**
+ * ツール種別に対応した説明・表示テキストを生成
+ */
+export function describeToolAction(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): ToolActionDescription {
+  switch (toolName) {
+    case 'Bash': {
+      const command = (toolInput.command as string) || '';
+      const { detail } = describeCommand(command);
+      return { displayText: command, detail };
+    }
+
+    case 'Edit': {
+      const filePath = (toolInput.file_path as string) || '';
+      return {
+        displayText: editPreview(toolInput),
+        detail: `ファイル ${basename(filePath)} の内容を編集します。`,
+      };
+    }
+
+    case 'Write': {
+      const filePath = (toolInput.file_path as string) || '';
+      const content = (toolInput.content as string) || '';
+      const lineCount = content.split('\n').length;
+      return {
+        displayText: `📄 ${filePath} (${lineCount}行)`,
+        detail: `ファイル ${basename(filePath)} に内容を書き込みます。`,
+      };
+    }
+
+    case 'Read': {
+      const filePath = (toolInput.file_path as string) || '';
+      return {
+        displayText: `📖 ${filePath}`,
+        detail: 'ファイルを読み取ります。',
+      };
+    }
+
+    case 'WebFetch': {
+      const url = (toolInput.url as string) || '';
+      return {
+        displayText: `🌐 ${url}`,
+        detail: `URL にアクセスしてコンテンツを取得します。`,
+      };
+    }
+
+    case 'Task': {
+      const prompt = (toolInput.prompt as string) || '';
+      const truncated = prompt.length > 100 ? prompt.slice(0, 100) + '…' : prompt;
+      return {
+        displayText: '🤖 サブエージェント',
+        detail: `サブエージェントを起動します: ${truncated}`,
+      };
+    }
+
+    case 'NotebookEdit': {
+      const filePath = (toolInput.notebook_path as string) || '';
+      return {
+        displayText: `📓 ${filePath}`,
+        detail: 'ノートブックのセルを編集します。',
+      };
+    }
+
+    default: {
+      // MCP ツール: mcp__ServerName__methodName
+      const mcp = parseMcpToolName(toolName);
+      if (mcp) {
+        return {
+          displayText: `🔌 ${mcp.server}: ${mcp.method}`,
+          detail: `MCP サーバー "${mcp.server}" の "${mcp.method}" を実行します。`,
+        };
+      }
+
+      // 未知のツール
+      return {
+        displayText: `⚙️ ${toolName}`,
+        detail: `ツール "${toolName}" を実行します。`,
+      };
+    }
+  }
+}

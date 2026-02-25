@@ -1,7 +1,7 @@
 import http from 'http';
 import path from 'path';
-import { analyzeCommand } from '../shared/danger-level';
-import { describeCommand } from '../shared/tool-classifier';
+import { analyzeToolDanger } from '../shared/danger-level';
+import { describeToolAction } from '../shared/tool-classifier';
 import type { PermissionRequest, PermissionResponse, NotificationRequest, QueueItem, PopupData, NotificationPopupData } from '../shared/types';
 
 const PORT = 19400;
@@ -126,9 +126,8 @@ export class NotifierServer {
   }
 
   private handlePermission(request: PermissionRequest, res: http.ServerResponse): void {
-    const command = request.tool_input.command || '';
-    const dangerInfo = analyzeCommand(command);
-    const { detail } = describeCommand(command);
+    const dangerInfo = analyzeToolDanger(request.tool_name, request.tool_input as Record<string, unknown>);
+    const { displayText, detail } = describeToolAction(request.tool_name, request.tool_input as Record<string, unknown>);
     const id = generateId();
 
     // Promise that resolves when user responds
@@ -138,6 +137,7 @@ export class NotifierServer {
         request,
         dangerInfo,
         description: detail,
+        displayText,
         resolve,
         createdAt: Date.now(),
       };
@@ -193,7 +193,6 @@ export class NotifierServer {
     if (this.queue.length === 0) return;
 
     const current = this.queue[0];
-    const command = current.request.tool_input.command || '';
 
     const projectName = current.request.session_cwd
       ? path.basename(current.request.session_cwd)
@@ -202,7 +201,7 @@ export class NotifierServer {
     const popupData: PopupData = {
       id: current.id,
       toolName: current.request.tool_name,
-      command,
+      command: current.displayText,
       dangerInfo: current.dangerInfo,
       description: current.description,
       queueCount: this.queue.length - 1,

@@ -190,3 +190,31 @@ export function getDangerInfo(level: DangerLevel): DangerInfo {
 export function analyzeCommand(command: string): DangerInfo {
   return getDangerInfo(analyzeDangerLevel(command));
 }
+
+/** ツール名から危険度レベルを取得 */
+function getToolDangerLevel(toolName: string): DangerLevel {
+  // 読み取り専用ツール
+  if (['Read', 'Glob', 'Grep'].includes(toolName)) return 'SAFE';
+  // サブエージェント起動
+  if (toolName === 'Task') return 'LOW';
+  // ファイル変更系
+  if (['Edit', 'Write', 'NotebookEdit'].includes(toolName)) return 'MEDIUM';
+  // 外部ネットワーク
+  if (toolName === 'WebFetch') return 'HIGH';
+  // MCP ツール・未知のツール
+  return 'MEDIUM';
+}
+
+/**
+ * ツール種別に対応した危険度判定
+ * Bash は既存の analyzeCommand に委譲、その他はツール名から判定
+ */
+export function analyzeToolDanger(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): DangerInfo {
+  if (toolName === 'Bash') {
+    return analyzeCommand((toolInput.command as string) || '');
+  }
+  return getDangerInfo(getToolDangerLevel(toolName));
+}

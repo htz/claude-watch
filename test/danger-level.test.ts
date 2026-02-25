@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeDangerLevel, analyzeCommand } from '../src/shared/danger-level';
+import { analyzeDangerLevel, analyzeCommand, analyzeToolDanger } from '../src/shared/danger-level';
 
 describe('analyzeDangerLevel', () => {
   describe('SAFE commands', () => {
@@ -140,5 +140,58 @@ describe('analyzeCommand', () => {
     expect(info.label).toBe('危険');
     expect(info.badgeColor).toBe('#FF3B30');
     expect(info.buttonColor).toBe('#FF3B30');
+  });
+});
+
+describe('analyzeToolDanger', () => {
+  describe('Bash delegation', () => {
+    it('should delegate to analyzeCommand for Bash (SAFE)', () => {
+      const info = analyzeToolDanger('Bash', { command: 'ls -la' });
+      expect(info.level).toBe('SAFE');
+    });
+
+    it('should delegate to analyzeCommand for Bash (CRITICAL)', () => {
+      const info = analyzeToolDanger('Bash', { command: 'sudo rm -rf /' });
+      expect(info.level).toBe('CRITICAL');
+    });
+
+    it('should handle empty Bash command', () => {
+      const info = analyzeToolDanger('Bash', { command: '' });
+      expect(info.level).toBe('MEDIUM');
+    });
+  });
+
+  describe('read-only tools', () => {
+    it.each(['Read', 'Glob', 'Grep'])('should classify %s as SAFE', (tool) => {
+      const info = analyzeToolDanger(tool, {});
+      expect(info.level).toBe('SAFE');
+    });
+  });
+
+  describe('file modification tools', () => {
+    it.each(['Edit', 'Write', 'NotebookEdit'])('should classify %s as MEDIUM', (tool) => {
+      const info = analyzeToolDanger(tool, {});
+      expect(info.level).toBe('MEDIUM');
+    });
+  });
+
+  it('should classify WebFetch as HIGH', () => {
+    const info = analyzeToolDanger('WebFetch', { url: 'https://example.com' });
+    expect(info.level).toBe('HIGH');
+  });
+
+  it('should classify Task as LOW', () => {
+    const info = analyzeToolDanger('Task', { prompt: 'do something' });
+    expect(info.level).toBe('LOW');
+  });
+
+  it('should classify MCP tools as MEDIUM', () => {
+    const info = analyzeToolDanger('mcp__github__create_issue', {});
+    expect(info.level).toBe('MEDIUM');
+  });
+
+  it('should classify unknown tools as MEDIUM', () => {
+    const info = analyzeToolDanger('SomeUnknownTool', {});
+    expect(info.level).toBe('MEDIUM');
   });
 });

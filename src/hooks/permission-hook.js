@@ -2,10 +2,11 @@
 'use strict';
 
 /**
- * Claude Code PreToolUse hook for Bash commands.
+ * Claude Code PreToolUse hook for all tool types.
  *
  * Reads tool invocation from stdin, sends to claude-code-notifier app via HTTP,
  * and outputs permission decision to stdout.
+ * Read/Glob/Grep (safe tools) are skipped. Bash checks allowed patterns.
  *
  * Fallback: If the app is not running or errors occur, exits with code 0
  * to let Claude Code show its normal permission dialog.
@@ -166,21 +167,18 @@ async function main() {
   const toolName = data.tool_name;
   const toolInput = data.tool_input || {};
 
-  // Only handle Bash tool
-  if (toolName !== 'Bash') {
+  // 読み取り専用ツールはポップアップ不要
+  const SAFE_TOOLS = ['Read', 'Glob', 'Grep'];
+  if (SAFE_TOOLS.includes(toolName)) {
     process.exit(0);
   }
 
-  const command = (toolInput.command || '').trim();
-  if (!command) {
-    process.exit(0);
-  }
-
-  // Check allowed patterns
-  const allowedPatterns = loadAllowedPatterns();
-  if (isCommandAllowed(command, allowedPatterns)) {
-    // Already allowed - skip notification
-    process.exit(0);
+  // Bash: 空コマンドや allowed patterns はスキップ
+  if (toolName === 'Bash') {
+    const command = (toolInput.command || '').trim();
+    if (!command) process.exit(0);
+    const allowedPatterns = loadAllowedPatterns();
+    if (isCommandAllowed(command, allowedPatterns)) process.exit(0);
   }
 
   // Check if app is running

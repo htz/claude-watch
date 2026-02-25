@@ -39,6 +39,7 @@ export interface QueueItem {
   request: PermissionRequest;
   dangerInfo: DangerInfo;
   description: string;
+  displayText: string;
   resolve: (response: PermissionResponse) => void;
   createdAt: number;
 }

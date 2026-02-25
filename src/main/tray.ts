@@ -1,10 +1,19 @@
 import { Tray, Menu, nativeImage, app } from 'electron';
 import path from 'path';
 
+interface TrayCreateOptions {
+  onQuit: () => void;
+  onToggleLaunchAtLogin: (enabled: boolean) => void;
+  launchAtLogin: boolean;
+}
+
 export class TrayManager {
   private tray: Tray | null = null;
+  private createOptions: TrayCreateOptions | null = null;
 
-  create(onQuit: () => void): Tray {
+  create(options: TrayCreateOptions): Tray {
+    this.createOptions = options;
+
     // Use template image for auto light/dark mode support
     const iconPath = this.getIconPath();
     const icon = nativeImage.createFromPath(iconPath);
@@ -14,10 +23,29 @@ export class TrayManager {
     this.tray = new Tray(icon);
     this.tray.setToolTip('Claude Code Notifier');
 
+    this.rebuildContextMenu(options.launchAtLogin);
+    return this.tray;
+  }
+
+  updateLaunchAtLoginState(checked: boolean): void {
+    this.rebuildContextMenu(checked);
+  }
+
+  private rebuildContextMenu(launchAtLogin: boolean): void {
+    if (!this.tray || !this.createOptions) return;
+
+    const { onQuit, onToggleLaunchAtLogin } = this.createOptions;
     const contextMenu = Menu.buildFromTemplate([
       {
         label: 'Claude Code Notifier',
         enabled: false,
+      },
+      { type: 'separator' },
+      {
+        label: 'ログイン時に起動',
+        type: 'checkbox',
+        checked: launchAtLogin,
+        click: (menuItem) => onToggleLaunchAtLogin(menuItem.checked),
       },
       { type: 'separator' },
       {
@@ -27,7 +55,6 @@ export class TrayManager {
     ]);
 
     this.tray.setContextMenu(contextMenu);
-    return this.tray;
   }
 
   /**

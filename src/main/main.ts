@@ -229,9 +229,16 @@ app.whenReady().then(async () => {
 
   // Create tray
   trayManager = new TrayManager();
-  trayManager.create(() => {
-    server.stop();
-    app.quit();
+  const launchAtLogin = app.getLoginItemSettings().openAtLogin;
+  trayManager.create({
+    onQuit: () => {
+      server.stop();
+      app.quit();
+    },
+    onToggleLaunchAtLogin: (enabled: boolean) => {
+      app.setLoginItemSettings({ openAtLogin: enabled });
+    },
+    launchAtLogin,
   });
 
   // Tray click: re-show queued permission popup if any

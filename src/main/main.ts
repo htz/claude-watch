@@ -17,6 +17,7 @@ let rendererReady = false;
 // Buffer for messages that arrive before renderer is ready
 let pendingPermission: PopupData | null = null;
 let pendingNotification: NotificationPopupData | null = null;
+let notificationQueue: NotificationPopupData[] = [];
 let currentView: 'permission' | 'notification' | 'none' = 'none';
 let nextShowPassive = false; // blur 後の再表示でフォーカスを奪わないフラグ
 
@@ -161,24 +162,65 @@ function showNotification(data: NotificationPopupData): void {
     return;
   }
 
-  // パーミッションがアクティブに表示中なら通知を割り込ませない
-  if (server?.getQueueLength() > 0 && mainWindow?.isVisible()) return;
+  // パーミッションがアクティブに表示中なら通知をキューに入れる
+  if (server?.getQueueLength() > 0 && mainWindow?.isVisible()) {
+    notificationQueue.push(data);
+    return;
+  }
+
+  // 通知が表示中ならキューに入れて順番待ち
+  if (currentView === 'notification' && mainWindow?.isVisible()) {
+    notificationQueue.push(data);
+    mainWindow.webContents.send('queue-update', notificationQueue.length + (server?.getQueueLength() ?? 0));
+    return;
+  }
+
+  displayNotification(data);
+}
+
+/** 通知を実際に表示する（内部用） */
+function displayNotification(data: NotificationPopupData): void {
+  if (!mainWindow) return;
+
+  // 表示時点のキュー件数を反映（通知キュー + パーミッションキュー）
+  data.queueCount = notificationQueue.length + (server?.getQueueLength() ?? 0);
 
   currentView = 'notification';
   mainWindow.webContents.send('notification', data);
   showWindowPassive();
 
-  // Auto-hide after delay
+  // Clear any existing timer
   if (notificationTimer) {
     clearTimeout(notificationTimer);
-  }
-  notificationTimer = setTimeout(() => {
-    // Only hide if no permission requests are pending
-    if (server.getQueueLength() === 0) {
-      hideWindow();
-    }
     notificationTimer = null;
+  }
+
+  // question タイプはユーザーが dismiss するまで表示し続ける
+  if (data.type === 'question') return;
+
+  // Auto-hide after delay
+  notificationTimer = setTimeout(() => {
+    notificationTimer = null;
+    showNextNotificationOrHide();
   }, NOTIFICATION_AUTO_HIDE_MS);
+}
+
+/** キューに次の通知があれば表示、なければウィンドウを隠す */
+function showNextNotificationOrHide(): void {
+  // パーミッションが待機中ならそちらを優先
+  if (server?.getQueueLength() > 0) {
+    server.reshowCurrentItem();
+    return;
+  }
+
+  // 通知キューに残りがあれば次を表示
+  if (notificationQueue.length > 0) {
+    const next = notificationQueue.shift()!;
+    displayNotification(next);
+    return;
+  }
+
+  hideWindow();
 }
 
 app.whenReady().then(async () => {
@@ -223,11 +265,11 @@ app.whenReady().then(async () => {
   ipcMain.on('permission-response', (_event, { id, decision }: { id: string; decision: 'allow' | 'deny' | 'skip' }) => {
     server.respondToPermission(id, decision);
 
-    // Show next item or hide window
+    // Show next permission, queued notification, or hide
     if (server.getQueueLength() > 0) {
       server.reshowCurrentItem();
     } else {
-      hideWindow();
+      showNextNotificationOrHide();
     }
   });
 
@@ -236,7 +278,7 @@ app.whenReady().then(async () => {
       clearTimeout(notificationTimer);
       notificationTimer = null;
     }
-    hideWindow();
+    showNextNotificationOrHide();
   });
 });
 

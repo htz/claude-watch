@@ -59,6 +59,8 @@ html, body {
 .view {
   width: 100%;
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -74,6 +76,7 @@ html, body {
   padding: 0 4px 10px;
   border-bottom: 0.5px solid var(--border);
   position: relative;
+  flex-shrink: 0;
 }
 
 .badge {
@@ -139,14 +142,18 @@ html, body {
   display: none;
 }
 
+.content-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .command-block {
   margin: 12px 4px;
   padding: 10px 12px;
   background: var(--code-bg);
   border-radius: 8px;
   overflow-x: auto;
-  max-height: 100px;
-  overflow-y: auto;
 }
 
 .command-block code {
@@ -172,6 +179,7 @@ html, body {
   display: flex;
   gap: 8px;
   padding: 0 4px 8px;
+  flex-shrink: 0;
 }
 
 .btn {
@@ -215,6 +223,7 @@ html, body {
   padding: 4px 4px 0;
   font-size: 11px;
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .shortcuts span {
@@ -234,30 +243,41 @@ kbd {
 }
 
 /* Notification view */
-.notification-header {
+.notification-content {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 0 4px 8px;
+  justify-content: center;
+  padding: 12px 16px;
+  text-align: center;
+  flex: 1;
 }
 
-.notification-icon {
-  font-size: 16px;
+.notification-icon-large {
+  font-size: 36px;
+  line-height: 1;
+  margin-bottom: 8px;
 }
 
 .notification-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
 }
 
-.notification-body {
-  padding: 0 4px;
-}
-
-.notification-body p {
+.notification-message {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text);
+  color: var(--text-secondary);
+}
+
+.btn-ok {
+  color: white;
+}
+
+.btn-ok:hover {
+  filter: brightness(1.1);
 }
 
 /* Animation */

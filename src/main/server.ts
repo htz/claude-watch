@@ -171,10 +171,16 @@ export class NotifierServer {
   }
 
   private handleNotification(request: NotificationRequest, res: http.ServerResponse): void {
+    const projectName = request.session_cwd
+      ? path.basename(request.session_cwd)
+      : undefined;
+
     const data: NotificationPopupData = {
       message: request.message || '',
       title: request.title || '通知',
       type: request.type || 'info',
+      projectName,
+      queueCount: this.queue.length,
     };
 
     this.callbacks.onNotification(data);

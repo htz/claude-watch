@@ -30,6 +30,7 @@ export interface NotificationRequest {
   message: string;
   title?: string;
   type?: 'info' | 'stop' | 'question';
+  session_cwd?: string;
 }
 
 /** キュー内のパーミッションアイテム */
@@ -58,12 +59,15 @@ export interface NotificationPopupData {
   message: string;
   title: string;
   type: 'info' | 'stop' | 'question';
+  projectName?: string;
+  queueCount: number;
 }
 
 /** preload で公開する API */
 export interface NotifierAPI {
   onPermission: (callback: (data: PopupData) => void) => void;
   onNotification: (callback: (data: NotificationPopupData) => void) => void;
+  onQueueUpdate: (callback: (count: number) => void) => void;
   respond: (id: string, decision: 'allow' | 'deny' | 'skip') => void;
   dismissNotification: () => void;
 }

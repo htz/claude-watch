@@ -21,9 +21,10 @@ send_notification() {
   local msg="$1"
   local title="${2:-通知}"
   local type="${3:-info}"
+  local cwd="${4:-$(pwd)}"
   curl -s -X POST "$HOST/notification" \
     -H 'Content-Type: application/json' \
-    -d "{\"message\":\"$msg\",\"title\":\"$title\",\"type\":\"$type\"}"
+    -d "{\"message\":\"$msg\",\"title\":\"$title\",\"type\":\"$type\",\"session_cwd\":\"$cwd\"}"
 }
 
 case "${1:-menu}" in
@@ -74,12 +75,17 @@ case "${1:-menu}" in
     ;;
   notify)
     echo "=== 通知: 完了 ==="
-    send_notification "タスクが完了しました" "完了" "stop"
+    send_notification "タスクが完了しました" "完了" "stop" "/Users/masashi.nishiwaki/work/claude-code-notifier"
     echo
     ;;
   notify-info)
     echo "=== 通知: 情報 ==="
-    send_notification "Claude is waiting for your input" "入力待ち" "question"
+    send_notification "Claude is waiting for your input" "入力待ち" "question" "/Users/masashi.nishiwaki/work/hacomono-app"
+    echo
+    ;;
+  long)
+    echo "=== LONG: 長いコマンド ==="
+    send_permission "find /usr/local/lib/node_modules -name '*.js' -exec grep -l 'require' {} \\; | xargs sed -i '' 's/require/import/g' && npm run build && npm run test -- --coverage --reporter=verbose --bail && echo 'done'" "Search all JS files in node_modules for require statements, replace them with import, then run build and tests with verbose coverage reporting" "/Users/masashi.nishiwaki/work/claude-code-notifier"
     echo
     ;;
   menu|*)
@@ -98,5 +104,6 @@ case "${1:-menu}" in
     echo "  multi       3件同時送信"
     echo "  notify      完了通知"
     echo "  notify-info 入力待ち通知"
+    echo "  long        長いコマンド (スクロール確認)"
     ;;
 esac

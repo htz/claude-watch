@@ -15,16 +15,25 @@ const btnAllow = document.getElementById('btn-allow')!;
 const btnSkip = document.getElementById('btn-skip')!;
 const notificationIcon = document.getElementById('notification-icon')!;
 const notificationTitle = document.getElementById('notification-title')!;
+const notificationProjectName = document.getElementById('notification-project-name')!;
+const notificationQueueBadge = document.getElementById('notification-queue-badge')!;
 const notificationMessage = document.getElementById('notification-message')!;
 const btnDismiss = document.getElementById('btn-dismiss')!;
+const btnOk = document.getElementById('btn-ok')!;
 
 let currentRequestId: string | null = null;
 
-// Type icons
-const TYPE_ICONS: Record<string, string> = {
-  info: '\u2139\uFE0F',
-  stop: '\u2705',
-  question: '\u2753',
+// Type config: icon, button color, button label
+interface TypeConfig {
+  icon: string;
+  buttonColor: string;
+  label: string;
+}
+
+const TYPE_CONFIG: Record<string, TypeConfig> = {
+  info:     { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: 'OK' },
+  stop:     { icon: '\u2705',       buttonColor: '#34c759', label: 'OK' },
+  question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: '\u78BA\u8A8D' },
 };
 
 function showPermissionView(data: PopupData): void {
@@ -79,14 +88,36 @@ function showNotificationView(data: NotificationPopupData): void {
   permissionView.classList.add('hidden');
   notificationView.classList.remove('hidden');
 
+  const config = TYPE_CONFIG[data.type] || TYPE_CONFIG.info;
+
   // Icon
-  notificationIcon.textContent = TYPE_ICONS[data.type] || TYPE_ICONS.info;
+  notificationIcon.textContent = config.icon;
 
   // Title
   notificationTitle.textContent = data.title;
 
   // Message
   notificationMessage.textContent = data.message;
+
+  // OK button
+  btnOk.textContent = config.label;
+  btnOk.style.backgroundColor = config.buttonColor;
+
+  // Project name
+  if (data.projectName) {
+    notificationProjectName.textContent = data.projectName;
+    notificationProjectName.classList.remove('hidden');
+  } else {
+    notificationProjectName.classList.add('hidden');
+  }
+
+  // Queue badge
+  if (data.queueCount > 0) {
+    notificationQueueBadge.textContent = `+${data.queueCount} 件待機中`;
+    notificationQueueBadge.classList.remove('hidden');
+  } else {
+    notificationQueueBadge.classList.add('hidden');
+  }
 
   // Re-trigger animation
   notificationView.style.animation = 'none';
@@ -121,6 +152,11 @@ btnDismiss.addEventListener('click', (e) => {
   window.notifierAPI.dismissNotification();
 });
 
+btnOk.addEventListener('click', (e) => {
+  e.stopPropagation();
+  window.notifierAPI.dismissNotification();
+});
+
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (currentRequestId) {
@@ -142,3 +178,11 @@ document.addEventListener('keydown', (e) => {
 // Listen for IPC events from main process
 window.notifierAPI.onPermission(showPermissionView);
 window.notifierAPI.onNotification(showNotificationView);
+window.notifierAPI.onQueueUpdate((count: number) => {
+  if (count > 0) {
+    notificationQueueBadge.textContent = `+${count} 件待機中`;
+    notificationQueueBadge.classList.remove('hidden');
+  } else {
+    notificationQueueBadge.classList.add('hidden');
+  }
+});

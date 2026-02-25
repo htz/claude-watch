@@ -14,6 +14,12 @@ const api: NotifierAPI = {
     });
   },
 
+  onQueueUpdate: (callback: (count: number) => void) => {
+    ipcRenderer.on('queue-update', (_event, count: number) => {
+      callback(count);
+    });
+  },
+
   respond: (id: string, decision: 'allow' | 'deny' | 'skip') => {
     ipcRenderer.send('permission-response', { id, decision });
   },

@@ -14,9 +14,9 @@ const NOTIFIER_HOST = '127.0.0.1';
 const NOTIFIER_PORT = 19400;
 const TIMEOUT_MS = 5000;
 
-function sendNotification(message, title, type) {
+function sendNotification(message, title, type, session_cwd) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ message, title, type });
+    const body = JSON.stringify({ message, title, type, session_cwd });
 
     const req = http.request({
       hostname: NOTIFIER_HOST,
@@ -62,7 +62,7 @@ async function main() {
     ? 'タスクが完了しました'
     : 'Claude Code が停止しました';
 
-  await sendNotification(reason, 'Claude Code', 'stop');
+  await sendNotification(reason, 'Claude Code', 'stop', process.cwd());
 }
 
 main().catch(() => {}).finally(() => process.exit(0));

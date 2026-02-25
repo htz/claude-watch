@@ -17,12 +17,13 @@
         <button id="btn-skip" class="btn-skip">&times;</button>
       </div>
 
-      <div class="command-block">
-        <code id="command-text"></code>
-      </div>
-
-      <div class="description">
-        <p id="description-text"></p>
+      <div class="content-scroll">
+        <div class="command-block">
+          <code id="command-text"></code>
+        </div>
+        <div class="description">
+          <p id="description-text"></p>
+        </div>
       </div>
 
       <div class="actions">
@@ -38,13 +39,26 @@
 
     <!-- Notification view -->
     <div id="notification-view" class="view hidden">
-      <div class="notification-header">
-        <span id="notification-icon" class="notification-icon"></span>
-        <span id="notification-title" class="notification-title"></span>
+      <div class="header">
+        <span id="notification-project-name" class="project-name hidden"></span>
+        <span id="notification-queue-badge" class="queue-badge hidden"></span>
         <button id="btn-dismiss" class="btn-skip">&times;</button>
       </div>
-      <div class="notification-body">
-        <p id="notification-message"></p>
+
+      <div class="content-scroll">
+        <div class="notification-content">
+          <div id="notification-icon" class="notification-icon-large"></div>
+          <div id="notification-title" class="notification-title"></div>
+          <p id="notification-message" class="notification-message"></p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btn-ok" class="btn btn-ok">OK</button>
+      </div>
+
+      <div class="shortcuts">
+        <span><kbd>Enter</kbd> 閉じる</span>
       </div>
     </div>
   </div>

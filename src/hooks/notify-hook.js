@@ -16,7 +16,7 @@ const TIMEOUT_MS = 5000;
 
 function sendNotification(message, title, type) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ message, title, type });
+    const body = JSON.stringify({ message, title, type, session_cwd: process.cwd() });
 
     const req = http.request({
       hostname: NOTIFIER_HOST,

@@ -260,8 +260,16 @@ function splitOnOperators(command) {
 
   const commands = [];
   let current = [];
+  let hasNonCommentTokens = false;
 
   for (const token of tokens) {
+    // コメントトークン {comment: "..."} → スキップ
+    if (typeof token === 'object' && token !== null && 'comment' in token) {
+      continue;
+    }
+
+    hasNonCommentTokens = true;
+
     if (typeof token === 'object' && token.op && COMMAND_SEPARATORS.has(token.op)) {
       // コマンド区切り演算子 → ここまでを1コマンドとして確定
       if (current.length > 0) {
@@ -277,12 +285,14 @@ function splitOnOperators(command) {
       // リダイレクト (>, <, >>, >&, etc.) やサブシェル括弧 → コマンドの一部として保持
       current.push(token.op);
     }
-    // {comment: "..."} はスキップ
   }
 
   if (current.length > 0) {
     commands.push(current.join(' '));
   }
+
+  // コメントのみの入力 → 空配列 (コマンドなし)
+  if (!hasNonCommentTokens) return [];
 
   return commands.length > 0 ? commands : [command];
 }
@@ -323,6 +333,174 @@ function containsCommandSubstitution(command) {
   }
 
   return false;
+}
+
+/**
+ * 文字列トークン内の $(...) をバランスド括弧で抽出する。
+ * ダブルクォート内に埋め込まれた $() に対応 (shell-quote は文字列として返す)。
+ */
+function extractDollarParenFromString(str) {
+  const results = [];
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === '$' && i + 1 < str.length && str[i + 1] === '(') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < str.length && depth > 0) {
+        if (str[j] === '(') depth++;
+        else if (str[j] === ')') depth--;
+        j++;
+      }
+      if (depth === 0) {
+        results.push(str.slice(i + 2, j - 1));
+      }
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return results;
+}
+
+/**
+ * shell-quote トークン配列から全サブコマンドを再帰的に抽出する (内部用)。
+ * - 演算子 (&&, ||, ;, |, &) で分割
+ * - 非クォート $() のトークン列から内部コマンドを再帰的に抽出
+ * - 文字列トークン内の $() (ダブルクォート内) も抽出
+ * - バッククォートは解決不能 (hasUnresolvable)
+ */
+function extractFromTokens(tokens) {
+  const result = { commands: [], hasUnresolvable: false };
+  let current = [];
+  let i = 0;
+  let hasNonCommentTokens = false;
+
+  while (i < tokens.length) {
+    const token = tokens[i];
+
+    // コメントトークン → スキップ
+    if (typeof token === 'object' && token !== null && 'comment' in token) {
+      i++;
+      continue;
+    }
+
+    hasNonCommentTokens = true;
+
+    // コマンド区切り演算子 → ここまでを1コマンドとして確定
+    if (typeof token === 'object' && token !== null && token.op && COMMAND_SEPARATORS.has(token.op)) {
+      if (current.length > 0) {
+        result.commands.push(current.join(' '));
+        current = [];
+      }
+      i++;
+      continue;
+    }
+
+    // 非クォート $(): "$" or "prefix$" トークン + {op: "("} → 内部コマンドを再帰抽出
+    // VAR=$() 形式では "VAR=$" トークンになるため endsWith('$') で検出
+    if (typeof token === 'string' && token.endsWith('$') &&
+        i + 1 < tokens.length &&
+        typeof tokens[i + 1] === 'object' && tokens[i + 1] !== null && tokens[i + 1].op === '(') {
+      // $ より前のプレフィックスがあればコマンドの一部として保持
+      if (token !== '$') {
+        const prefix = token.slice(0, -1);
+        if (prefix) current.push(prefix);
+      }
+
+      let depth = 1;
+      let j = i + 2;
+      const innerTokens = [];
+      while (j < tokens.length && depth > 0) {
+        const t = tokens[j];
+        if (typeof t === 'object' && t !== null && t.op === '(') depth++;
+        else if (typeof t === 'object' && t !== null && t.op === ')') {
+          depth--;
+          if (depth === 0) break;
+        }
+        if (depth > 0) innerTokens.push(t);
+        j++;
+      }
+
+      if (innerTokens.length > 0) {
+        const nested = extractFromTokens(innerTokens);
+        result.commands.push(...nested.commands);
+        if (nested.hasUnresolvable) result.hasUnresolvable = true;
+      }
+
+      i = j + 1;
+      continue;
+    }
+
+    // 文字列トークン
+    if (typeof token === 'string') {
+      // バッククォート検出
+      if (token.includes('`')) result.hasUnresolvable = true;
+
+      // ダブルクォート内の $() (文字列に埋め込まれた形)
+      if (/\$\(/.test(token) && token !== '$') {
+        const extracted = extractDollarParenFromString(token);
+        for (const cmd of extracted) {
+          const nested = extractAllSubCommands(cmd);
+          result.commands.push(...nested.commands);
+          if (nested.hasUnresolvable) result.hasUnresolvable = true;
+        }
+      }
+
+      current.push(token);
+      i++;
+      continue;
+    }
+
+    // グロブパターン
+    if (typeof token === 'object' && token !== null && token.pattern) {
+      current.push(token.pattern);
+      i++;
+      continue;
+    }
+
+    // その他の演算子 (リダイレクト等)
+    if (typeof token === 'object' && token !== null && token.op) {
+      current.push(token.op);
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+
+  if (current.length > 0) {
+    result.commands.push(current.join(' '));
+  }
+
+  // コメントのみ → 空
+  if (!hasNonCommentTokens) {
+    result.commands = [];
+  }
+
+  return result;
+}
+
+/**
+ * コマンド文字列から全サブコマンドを再帰的に抽出する。
+ * 演算子分割、$() 内部コマンド抽出、コメント除去を統合的に処理する。
+ *
+ * @returns {{ commands: string[], hasUnresolvable: boolean }}
+ *   commands: 抽出された全サブコマンド (外部コマンド + $() 内部コマンド)
+ *   hasUnresolvable: バッククォート等、静的解析不能な置換を含む場合 true
+ */
+function extractAllSubCommands(line) {
+  if (!shellParse) {
+    return { commands: [line], hasUnresolvable: false };
+  }
+
+  let tokens;
+  try {
+    tokens = shellParse(line, NO_EXPAND_ENV);
+  } catch {
+    return { commands: [line], hasUnresolvable: true };
+  }
+
+  return extractFromTokens(tokens);
 }
 
 /**
@@ -405,14 +583,14 @@ function normalizeShellLine(line) {
  *   1. 複数行 → extractCommandLines (ヒアドキュメント・行継続を考慮)
  *   2. normalizeShellLine (if/for/fi 等のシェル制御構文を正規化)
  *   3. isPureAssignment で変数代入行を除外
- *   4. splitOnOperators (&&, ||, ;, |, & で分割)
+ *   4. extractAllSubCommands (演算子分割 + $() 再帰展開)
  *   5. パターン照合
  *
  * @param {string} command - Bash コマンド文字列
  * @param {string[]} patterns - パターンリスト
  * @param {'all'|'any'} mode
- *   - 'all': 全サブコマンドがマッチした場合 true (allow 用)
- *            コマンド置換 ($(), ``) を含むサブコマンドがあれば false
+ *   - 'all': 全サブコマンド ($() 内含む) がマッチした場合 true (allow 用)
+ *            バッククォート等の解決不能な置換を含む場合は false
  *   - 'any': いずれかのサブコマンドがマッチした場合 true (deny 用)
  */
 function matchesCommandPattern(command, patterns, mode) {
@@ -428,27 +606,35 @@ function matchesCommandPattern(command, patterns, mode) {
     lines = [command];
   }
 
-  // allow 用: 元のコマンド行でコマンド置換を検出 (再構築前にチェック)
-  // shell-quote はクォート情報を保持しないため、再構築後の文字列では誤検出する
-  if (mode !== 'any' && lines.some(line => containsCommandSubstitution(line))) {
-    return false;
+  // 全サブコマンドを抽出 ($() 内も再帰的に展開)
+  const allSubCommands = [];
+  let hasUnresolvable = false;
+
+  for (const line of lines) {
+    if (isPureAssignment(line)) continue;
+
+    const extracted = extractAllSubCommands(line);
+    if (extracted.hasUnresolvable) hasUnresolvable = true;
+
+    for (const cmd of extracted.commands) {
+      const trimmed = cmd.trim();
+      if (trimmed && !isPureAssignment(trimmed)) {
+        allSubCommands.push(trimmed);
+      }
+    }
   }
 
-  // 演算子で分割
-  const subCommands = lines
-    .filter(cmd => !isPureAssignment(cmd))
-    .flatMap(cmd => splitOnOperators(cmd))
-    .map(cmd => cmd.trim())
-    .filter(cmd => cmd && !isPureAssignment(cmd));
+  if (allSubCommands.length === 0) return false;
 
-  if (subCommands.length === 0) return false;
+  // allow 用: バッククォート等の解決不能な置換がある場合は安全側に拒否
+  if (mode !== 'any' && hasUnresolvable) return false;
 
   if (mode === 'any') {
     // deny 用: いずれかがマッチすれば true
-    return subCommands.some(cmd => matchesSingleCommand(cmd, patterns));
+    return allSubCommands.some(cmd => matchesSingleCommand(cmd, patterns));
   }
 
-  return subCommands.every(cmd => matchesSingleCommand(cmd, patterns));
+  return allSubCommands.every(cmd => matchesSingleCommand(cmd, patterns));
 }
 
 /**
@@ -650,4 +836,4 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution };
+module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString };

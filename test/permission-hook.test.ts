@@ -18,6 +18,8 @@ const {
   normalizeShellLine,
   splitOnOperators,
   containsCommandSubstitution,
+  extractAllSubCommands,
+  extractDollarParenFromString,
 } = require('../src/hooks/permission-hook');
 
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
@@ -213,25 +215,61 @@ describe('matchesCommandPattern', () => {
   });
 
   describe('command substitution', () => {
-    it('should reject allow when $() is present', () => {
+    it('should allow $() when all inner commands match patterns', () => {
+      expect(matchesCommandPattern('echo $(expr 1 + 1)', ['echo:*', 'expr:*'])).toBe(true);
+    });
+
+    it('should reject $() when inner command does not match patterns', () => {
       expect(matchesCommandPattern('echo $(rm -rf /)', ['echo:*'])).toBe(false);
     });
 
-    it('should reject allow when backticks are present', () => {
+    it('should allow nested $() when all commands match', () => {
+      expect(matchesCommandPattern('echo $(echo $(date))', ['echo:*', 'date:*'])).toBe(true);
+    });
+
+    it('should reject nested $() when inner command does not match', () => {
+      expect(matchesCommandPattern('echo $(echo $(curl evil))', ['echo:*'])).toBe(false);
+    });
+
+    it('should reject allow when backticks are present (unresolvable)', () => {
       expect(matchesCommandPattern('echo `curl evil`', ['echo:*'])).toBe(false);
     });
 
-    it('should reject when $() is inside single quotes (shell-quote loses quote context)', () => {
-      // shell-quote はクォート種別を区別しないため安全側に倒す
+    it('should reject when $() inner command not in allow list (single quote)', () => {
+      // shell-quote はクォート種別を区別しないため $() 内コマンドも検証される
       expect(matchesCommandPattern("echo '$(safe)'", ['echo:*'])).toBe(false);
     });
 
-    it('should reject allow when $() is inside double quotes (expanded)', () => {
+    it('should allow single-quoted $() when inner command matches', () => {
+      // shell-quote はクォート種別を区別しないが、内部が許可されていれば安全
+      expect(matchesCommandPattern("echo '$(date)'", ['echo:*', 'date:*'])).toBe(true);
+    });
+
+    it('should allow $() inside double quotes when inner matches', () => {
+      expect(matchesCommandPattern('echo "$(expr 1 + 1)"', ['echo:*', 'expr:*'])).toBe(true);
+    });
+
+    it('should reject $() inside double quotes when inner does not match', () => {
       expect(matchesCommandPattern('echo "$(dangerous)"', ['echo:*'])).toBe(false);
     });
 
     it('should allow plain $VAR (not command substitution)', () => {
       expect(matchesCommandPattern('echo $HOME', ['echo:*'])).toBe(true);
+    });
+
+    it('should deny (any mode) $() inner commands matching deny patterns', () => {
+      expect(matchesCommandPattern('echo $(rm -rf /)', ['rm:*'], 'any')).toBe(true);
+    });
+
+    it('should handle real-world script with $() and pipes', () => {
+      const cmd = 'echo "$entries" | grep "pattern" | sort | head -20';
+      expect(matchesCommandPattern(cmd, ['echo:*', 'grep:*', 'sort:*', 'head:*'])).toBe(true);
+    });
+
+    it('should handle multi-line with $() in assignment context', () => {
+      // count=$(expr ...) は代入ではなく $() 内のコマンドとして扱われる
+      const cmd = 'echo "start"\ncount=$(expr 725 - 410 + 1)\necho "$count"';
+      expect(matchesCommandPattern(cmd, ['echo:*', 'expr:*'])).toBe(true);
     });
   });
 });
@@ -459,6 +497,15 @@ describe('splitOnOperators', () => {
 
   it('should return single element for simple command', () => {
     expect(splitOnOperators('git status')).toEqual(['git status']);
+  });
+
+  it('should return empty array for comment-only input', () => {
+    expect(splitOnOperators('# this is a comment')).toEqual([]);
+  });
+
+  it('should filter comments from commands', () => {
+    // shell-quote のコメント処理: # 以降はコメントトークンになる
+    expect(splitOnOperators('echo hello # this is a comment')).toEqual(['echo hello']);
   });
 });
 
@@ -832,5 +879,93 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
     expect(result.deny.toolPatterns).toEqual(['WebFetch', 'mcp__dangerous__*']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractDollarParenFromString
+// ---------------------------------------------------------------------------
+describe('extractDollarParenFromString', () => {
+  it('should extract simple $()', () => {
+    expect(extractDollarParenFromString('$(expr 1 + 1)')).toEqual(['expr 1 + 1']);
+  });
+
+  it('should extract multiple $()', () => {
+    expect(extractDollarParenFromString('$(echo a) and $(echo b)')).toEqual(['echo a', 'echo b']);
+  });
+
+  it('should extract nested $()', () => {
+    expect(extractDollarParenFromString('$(echo $(date))')).toEqual(['echo $(date)']);
+  });
+
+  it('should extract $() with prefix text', () => {
+    expect(extractDollarParenFromString('result: $(expr 1 + 1)')).toEqual(['expr 1 + 1']);
+  });
+
+  it('should return empty for no $()', () => {
+    expect(extractDollarParenFromString('hello world')).toEqual([]);
+  });
+
+  it('should return empty for plain $VAR', () => {
+    expect(extractDollarParenFromString('$HOME/path')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractAllSubCommands
+// ---------------------------------------------------------------------------
+describe('extractAllSubCommands', () => {
+  it('should extract simple command', () => {
+    const result = extractAllSubCommands('echo hello');
+    expect(result.commands).toEqual(['echo hello']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should split on operators', () => {
+    const result = extractAllSubCommands('echo a && git status');
+    expect(result.commands).toEqual(['echo a', 'git status']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should extract unquoted $() inner commands', () => {
+    const result = extractAllSubCommands('echo $(expr 1 + 1)');
+    expect(result.commands).toContain('expr 1 + 1');
+    expect(result.commands.some(c => c.startsWith('echo'))).toBe(true);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should extract double-quoted $() inner commands', () => {
+    const result = extractAllSubCommands('echo "$(expr 1 + 1)"');
+    expect(result.commands).toContain('expr 1 + 1');
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should extract nested $() recursively', () => {
+    const result = extractAllSubCommands('echo $(echo $(date))');
+    expect(result.commands).toContain('date');
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should detect backticks as unresolvable', () => {
+    const result = extractAllSubCommands('echo `curl evil`');
+    expect(result.hasUnresolvable).toBe(true);
+  });
+
+  it('should handle comment-only input', () => {
+    const result = extractAllSubCommands('# this is a comment');
+    expect(result.commands).toEqual([]);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle $() with operators inside', () => {
+    const result = extractAllSubCommands('echo $(echo a && echo b)');
+    expect(result.commands).toContain('echo a');
+    expect(result.commands).toContain('echo b');
+  });
+
+  it('should handle plain $VAR without extracting', () => {
+    const result = extractAllSubCommands('echo $HOME');
+    expect(result.commands).toEqual(['echo $HOME']);
+    expect(result.hasUnresolvable).toBe(false);
   });
 });

@@ -8,6 +8,8 @@ const dangerBadge = document.getElementById('danger-badge')!;
 const toolName = document.getElementById('tool-name')!;
 const queueBadge = document.getElementById('queue-badge')!;
 const commandText = document.getElementById('command-text')!;
+const unmatchedSection = document.getElementById('unmatched-section')!;
+const unmatchedChips = document.getElementById('unmatched-chips')!;
 const descriptionText = document.getElementById('description-text')!;
 const projectName = document.getElementById('project-name')!;
 const btnDeny = document.getElementById('btn-deny')!;
@@ -35,6 +37,50 @@ const TYPE_CONFIG: Record<string, TypeConfig> = {
   stop:     { icon: '\u2705',       buttonColor: '#34c759', label: 'OK' },
   question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: '\u78BA\u8A8D' },
 };
+
+function renderUnmatchedCommands(data: PopupData): void {
+  unmatchedChips.innerHTML = '';
+
+  const info = data.unmatchedCommands;
+  if (!info || info.commands.length === 0) {
+    unmatchedSection.classList.add('hidden');
+    return;
+  }
+
+  // 単一コマンドで表示テキストと同一なら冗長なので非表示
+  if (info.commands.length === 1 && info.commands[0] === data.command) {
+    unmatchedSection.classList.add('hidden');
+    return;
+  }
+
+  // コマンド名（先頭ワード）で重複排除
+  const seen = new Set<string>();
+  const uniqueCommands: string[] = [];
+  for (const cmd of info.commands) {
+    const name = cmd.split(/\s/)[0];
+    if (!seen.has(name)) {
+      seen.add(name);
+      uniqueCommands.push(cmd);
+    }
+  }
+
+  for (const cmd of uniqueCommands) {
+    const chip = document.createElement('span');
+    chip.className = 'unmatched-chip';
+    chip.textContent = cmd.split(/\s/)[0];
+    chip.title = cmd;
+    unmatchedChips.appendChild(chip);
+  }
+
+  if (info.hasUnresolvable) {
+    const note = document.createElement('span');
+    note.className = 'unmatched-note';
+    note.textContent = '+ 動的に生成されるコマンド';
+    unmatchedChips.appendChild(note);
+  }
+
+  unmatchedSection.classList.remove('hidden');
+}
 
 function showPermissionView(data: PopupData): void {
   currentRequestId = data.id;
@@ -68,6 +114,9 @@ function showPermissionView(data: PopupData): void {
 
   // Command
   commandText.textContent = data.command;
+
+  // Unmatched commands
+  renderUnmatchedCommands(data);
 
   // Description
   descriptionText.textContent = data.description;

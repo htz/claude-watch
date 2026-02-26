@@ -9,6 +9,12 @@ export interface DangerInfo {
   buttonColor: string;
 }
 
+/** 未許可コマンド情報 */
+export interface UnmatchedCommandsInfo {
+  commands: string[];
+  hasUnresolvable: boolean;
+}
+
 /** パーミッション要求 (HTTP POST /permission) */
 export interface PermissionRequest {
   tool_name: string;
@@ -18,6 +24,7 @@ export interface PermissionRequest {
     [key: string]: unknown;
   };
   session_cwd?: string;
+  unmatched_commands?: UnmatchedCommandsInfo;
 }
 
 /** パーミッション応答 */
@@ -54,6 +61,7 @@ export interface PopupData {
   description: string;
   queueCount: number;
   projectName?: string;
+  unmatchedCommands?: UnmatchedCommandsInfo;
 }
 
 /** 通知ポップアップデータ */

@@ -20,6 +20,7 @@ const {
   containsCommandSubstitution,
   extractAllSubCommands,
   extractDollarParenFromString,
+  extractUnmatchedCommands,
 } = require('../src/hooks/permission-hook');
 
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
@@ -966,6 +967,85 @@ describe('extractAllSubCommands', () => {
   it('should handle plain $VAR without extracting', () => {
     const result = extractAllSubCommands('echo $HOME');
     expect(result.commands).toEqual(['echo $HOME']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractUnmatchedCommands
+// ---------------------------------------------------------------------------
+describe('extractUnmatchedCommands', () => {
+  it('should return empty when all commands match', () => {
+    const result = extractUnmatchedCommands('git status && git diff', ['git:*']);
+    expect(result.unmatched).toEqual([]);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should return unmatched commands only', () => {
+    const result = extractUnmatchedCommands('git status && curl http://example.com', ['git:*']);
+    expect(result.unmatched).toEqual(['curl http://example.com']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle pipe chains', () => {
+    const result = extractUnmatchedCommands('cat file.txt | grep pattern | sort', ['cat:*', 'grep:*']);
+    expect(result.unmatched).toEqual(['sort']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle $() inner commands', () => {
+    const result = extractUnmatchedCommands('echo $(expr 1 + 1)', ['echo:*']);
+    expect(result.unmatched).toEqual(['expr 1 + 1']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle $() with all matching', () => {
+    const result = extractUnmatchedCommands('echo $(expr 1 + 1)', ['echo:*', 'expr:*']);
+    expect(result.unmatched).toEqual([]);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should detect backticks as unresolvable', () => {
+    const result = extractUnmatchedCommands('echo `curl evil`', ['echo:*']);
+    expect(result.hasUnresolvable).toBe(true);
+  });
+
+  it('should handle pure assignment lines (skip them)', () => {
+    const result = extractUnmatchedCommands('MARKER=foo\ntouch file.txt', ['touch:*']);
+    expect(result.unmatched).toEqual([]);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle env var prefix on command', () => {
+    const result = extractUnmatchedCommands('NODE_ENV=test npm test', ['npm:*']);
+    expect(result.unmatched).toEqual([]);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle heredoc (skip content)', () => {
+    const cmd = `cat << 'EOF'\nhello world\nEOF\ncurl http://example.com`;
+    const result = extractUnmatchedCommands(cmd, ['cat:*']);
+    expect(result.unmatched).toEqual(['curl http://example.com']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle shell control structures (if/fi)', () => {
+    const cmd = `if [ -f file.txt ]; then\n  cat file.txt\nfi`;
+    const result = extractUnmatchedCommands(cmd, ['cat:*']);
+    expect(result.unmatched).toEqual(['[ -f file.txt ]']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should return all unmatched with empty allow patterns', () => {
+    const result = extractUnmatchedCommands('echo hello && git status', []);
+    expect(result.unmatched).toEqual(['echo hello', 'git status']);
+    expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should handle complex multi-command with partial match', () => {
+    const cmd = 'echo $(expr 1) | head -5';
+    const result = extractUnmatchedCommands(cmd, ['echo:*', 'expr:*']);
+    expect(result.unmatched).toEqual(['head -5']);
     expect(result.hasUnresolvable).toBe(false);
   });
 });

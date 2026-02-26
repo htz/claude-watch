@@ -165,6 +165,57 @@ html, body {
   word-break: break-all;
 }
 
+/* Unmatched commands section */
+.unmatched-section {
+  padding: 0 4px 8px;
+}
+
+.unmatched-section.hidden {
+  display: none;
+}
+
+.unmatched-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.unmatched-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.unmatched-chip {
+  display: inline-block;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 149, 0, 0.15);
+  color: #cc7700;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unmatched-note {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-secondary);
+  padding: 2px 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .unmatched-chip {
+    background: rgba(255, 149, 0, 0.2);
+    color: #ffb340;
+  }
+}
+
 .description {
   padding: 0 4px 12px;
 }

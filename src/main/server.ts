@@ -162,6 +162,12 @@ export class ClaudeWatchServer {
     if (typeof obj.tool_name !== 'string') return false;
     if (obj.tool_input !== undefined && (typeof obj.tool_input !== 'object' || obj.tool_input === null)) return false;
     if (obj.session_cwd !== undefined && typeof obj.session_cwd !== 'string') return false;
+    if (obj.unmatched_commands !== undefined) {
+      if (typeof obj.unmatched_commands !== 'object' || obj.unmatched_commands === null) return false;
+      const uc = obj.unmatched_commands as Record<string, unknown>;
+      if (!Array.isArray(uc.commands)) return false;
+      if (typeof uc.hasUnresolvable !== 'boolean') return false;
+    }
     return true;
   }
 
@@ -264,6 +270,7 @@ export class ClaudeWatchServer {
       description: current.description,
       queueCount: this.queue.length - 1,
       projectName,
+      unmatchedCommands: current.request.unmatched_commands,
     };
 
     this.callbacks.onPermissionRequest(popupData);

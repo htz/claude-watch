@@ -638,6 +638,49 @@ function matchesCommandPattern(command, patterns, mode) {
 }
 
 /**
+ * Bash コマンドから allow パターンにマッチしないサブコマンドを抽出する。
+ * matchesCommandPattern と同じパイプライン（extractCommandLines → normalizeShellLine → extractAllSubCommands）を使用。
+ *
+ * @param {string} command - Bash コマンド文字列
+ * @param {string[]} allowPatterns - allow リストの Bash パターン
+ * @returns {{ unmatched: string[], hasUnresolvable: boolean }}
+ */
+function extractUnmatchedCommands(command, allowPatterns) {
+  // コマンド行を抽出・正規化
+  let lines;
+  if (command.includes('\n')) {
+    lines = extractCommandLines(command)
+      .map(cmd => normalizeShellLine(cmd))
+      .filter(cmd => cmd !== null);
+  } else {
+    lines = [command];
+  }
+
+  // 全サブコマンドを抽出 ($() 内も再帰的に展開)
+  const allSubCommands = [];
+  let hasUnresolvable = false;
+
+  for (const line of lines) {
+    if (isPureAssignment(line)) continue;
+
+    const extracted = extractAllSubCommands(line);
+    if (extracted.hasUnresolvable) hasUnresolvable = true;
+
+    for (const cmd of extracted.commands) {
+      const trimmed = cmd.trim();
+      if (trimmed && !isPureAssignment(trimmed)) {
+        allSubCommands.push(trimmed);
+      }
+    }
+  }
+
+  // マッチしないサブコマンドを収集
+  const unmatched = allSubCommands.filter(cmd => !matchesSingleCommand(cmd, allowPatterns));
+
+  return { unmatched, hasUnresolvable };
+}
+
+/**
  * Check if a non-Bash tool name matches any of the given patterns.
  * Handles exact match ("Edit") and wildcard ("mcp__notion__*").
  */
@@ -698,9 +741,13 @@ function healthCheck() {
 /**
  * Send permission request to the claude-watch app.
  */
-function requestPermission(toolName, toolInput) {
+function requestPermission(toolName, toolInput, unmatchedCommands) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ tool_name: toolName, tool_input: toolInput, session_cwd: process.cwd() });
+    const payload = { tool_name: toolName, tool_input: toolInput, session_cwd: process.cwd() };
+    if (unmatchedCommands) {
+      payload.unmatched_commands = unmatchedCommands;
+    }
+    const body = JSON.stringify(payload);
 
     const req = http.request({
       socketPath: SOCKET_PATH,
@@ -794,6 +841,15 @@ async function main() {
 
   // ask リスト、またはどのリストにも含まれない → ポップアップ表示へ進む
 
+  // 未許可コマンド情報を算出 (Bash のみ)
+  let unmatchedCommands = undefined;
+  if (toolName === 'Bash' && command) {
+    const { unmatched, hasUnresolvable } = extractUnmatchedCommands(command, perms.allow.bashPatterns);
+    if (unmatched.length > 0 || hasUnresolvable) {
+      unmatchedCommands = { commands: unmatched, hasUnresolvable };
+    }
+  }
+
   // Check if app is running
   const isRunning = await healthCheck();
   if (!isRunning) {
@@ -803,7 +859,7 @@ async function main() {
 
   // Request permission from the app
   try {
-    const response = await requestPermission(toolName, toolInput);
+    const response = await requestPermission(toolName, toolInput, unmatchedCommands);
 
     if (response.decision === 'skip') {
       // Skip: no output → fallback to terminal dialog
@@ -836,4 +892,4 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString };
+module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString, extractUnmatchedCommands };

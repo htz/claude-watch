@@ -174,7 +174,7 @@ html, body {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px;
-  padding: 10px 4px 8px;
+  padding: 10px 4px 4px;
 }
 
 .unmatched-section.hidden {
@@ -300,6 +300,12 @@ kbd {
 }
 
 /* Notification view */
+#notification-view .content-scroll {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .notification-content {
   display: flex;
   flex-direction: column;

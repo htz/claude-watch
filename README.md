@@ -7,6 +7,7 @@ Claude Code のツール実行時に macOS メニューバーからパーミッ�
 ## 特徴
 
 - **パーミッションポップアップ** — `Bash`, `Edit`, `Write` など危険なツール実行前に許可/拒否を選択
+- **settings.json 権限チェック** — Claude Code の `permissions` (allow/deny/ask) を尊重し、allow 済みツールはポップアップをスキップ
 - **危険度バッジ** — コマンドを自動分析し、5段階 (安全/低/中/高/危険) で色分け表示
 - **タスク通知** — Notification / Stop フックによるリアルタイム通知
 - **キューイング** — 複数リクエストを順番に処理、待機件数を表示
@@ -75,18 +76,37 @@ npm start
 
 ```
 Claude Code  ──hook──▶  permission-hook.js  ──HTTP──▶  Electron App
-                                                           │
-                                                     ポップアップ表示
-                                                           │
-                                                     ユーザー応答
+                              │                             │
+                         settings.json                ポップアップ表示
+                         権限チェック                       │
+                              │                       ユーザー応答
+                         deny → 即拒否                      │
+                         allow → フォールスルー              │
+                         ask/未登録 ──────────────▶  ポップアップへ
                                                            │
 Claude Code  ◀─────────  allow / deny / skip  ◀────────────┘
 ```
 
-1. Claude Code がツールを実行しようとすると、`~/.claude/settings.json` に登録されたフックスクリプトが起動
-2. フックスクリプトが Unix ドメインソケット経由で Electron アプリにリクエスト送信
-3. メニューバーからポップアップが表示され、ユーザーが許可/拒否を選択
-4. 応答がフックスクリプト経由で Claude Code に返却される
+1. Claude Code がツールを実行しようとすると、`settings.json` に登録されたフックスクリプトが起動
+2. フックスクリプトが `settings.json` の `permissions` (allow/deny/ask) を確認:
+   - **deny** リストにマッチ → ポップアップなしで即座に拒否
+   - **allow** リストにマッチ → ポップアップなしで Claude 本体の許可処理にフォールスルー
+   - **ask** リストまたは未登録 → 次のステップへ
+3. Unix ドメインソケット経由で Electron アプリにリクエスト送信
+4. メニューバーからポップアップが表示され、ユーザーが許可/拒否を選択
+5. 応答がフックスクリプト経由で Claude Code に返却される
+
+### 設定ファイルの読み込み
+
+フックスクリプトは以下の設定ファイルを全てマージして権限チェックを行います:
+
+| 優先順 | パス | 用途 |
+|---|---|---|
+| 1 | `~/.claude/settings.json` | グローバル設定 |
+| 2 | `<project>/.claude/settings.json` | プロジェクト設定 (Git 管理) |
+| 3 | `<project>/.claude/settings.local.json` | プロジェクトローカル設定 |
+
+これにより、Claude Code 本体の権限設定と一貫した動作を実現します。
 
 ## 開発
 

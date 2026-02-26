@@ -44,6 +44,18 @@ npm run make        # DMG/ZIP 作成
 - `notify-hook.js`: Notification — 通知を送信して即座に終了
 - `stop-hook.js`: Stop — タスク完了通知を送信して即座に終了
 
+### パーミッションフックの権限チェック (`permission-hook.js`)
+- `settings.json` の `permissions` (allow/deny/ask) を尊重し、Claude 本体と同じ判断を行う
+- **設定ファイルの読み込み** (全てマージ):
+  1. `~/.claude/settings.json` (グローバル)
+  2. `<project>/.claude/settings.json` (プロジェクト、Git 管理)
+  3. `<project>/.claude/settings.local.json` (プロジェクトローカル)
+- **判定フロー**:
+  - `deny` リストにマッチ → 即座に `permissionDecision: 'deny'` (ポップアップなし)
+  - `allow` リストにマッチ → `exit(0)` で Claude 本体にフォールスルー (ポップアップなし)
+  - `ask` リスト or 未登録 → ノーティファイアのポップアップを表示
+- Bash コマンドは `Bash(git:*)` 形式、非 Bash ツールは `Edit` / `mcp__notion__*` 形式で照合
+
 ### サーバー (`src/main/server.ts`)
 - Unix ドメインソケットで HTTP リクエストを受け付ける
 - `GET /health` — ヘルスチェック
@@ -67,5 +79,5 @@ npm run make        # DMG/ZIP 作成
 - **日本語**: UI テキスト、ツール説明、コメントは日本語
 - **型安全**: `strict: true`、any 禁止
 - **フックスクリプト**: CommonJS + 外部依存なし + 必ず exit code 0 (エラー時もフォールバック)
-- **テスト**: `danger-level` と `tool-classifier` はパターン追加時に必ずテストも追加
+- **テスト**: `danger-level`、`tool-classifier`、`permission-hook` はパターン追加時に必ずテストも追加
 - **shared/ の変更**: メインプロセス・フックスクリプト・テストに影響するため慎重に

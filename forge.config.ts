@@ -14,7 +14,7 @@ const config: ForgeConfig = {
     extendInfo: {
       LSUIElement: true,
     },
-    extraResource: ['./src/hooks'],
+    extraResource: ['./src/hooks', './assets'],
   },
   makers: [
     new MakerZIP({}, ['darwin']),

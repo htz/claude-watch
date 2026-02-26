@@ -282,8 +282,8 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
 
-    // グローバル + プロジェクトがマージされる
-    expect(result.allow.bashPatterns).toEqual(['git:*', 'npm:*']);
+    // プロジェクト設定の allow は無視される（セキュリティ対策）
+    expect(result.allow.bashPatterns).toEqual(['git:*']);
     expect(result.allow.toolPatterns).toEqual(['Edit']);
     expect(result.deny.bashPatterns).toEqual(['rm -rf /:*', 'sudo:*']);
   });
@@ -315,8 +315,9 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
 
-    expect(result.allow.bashPatterns).toEqual(['git:*', 'npm:*']);
-    expect(result.allow.toolPatterns).toEqual(['Edit']);
+    // プロジェクト設定の allow は無視される（セキュリティ対策）
+    expect(result.allow.bashPatterns).toEqual(['git:*']);
+    expect(result.allow.toolPatterns).toEqual([]);
     expect(result.deny.bashPatterns).toEqual(['sudo:*']);
     expect(result.ask.bashPatterns).toEqual(['docker:*']);
   });

@@ -15,7 +15,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import readline from 'readline';
-import { execSync } from 'child_process';
 
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -60,11 +59,7 @@ const HOOK_DEFS: HookDef[] = [
 // Helpers
 // ---------------------------------------------------------------------------
 function getNodePath(): string {
-  try {
-    return execSync('which node', { encoding: 'utf-8' }).trim();
-  } catch {
-    return 'node';
-  }
+  return process.execPath;
 }
 
 function loadSettings(): Record<string, unknown> {
@@ -79,9 +74,9 @@ function loadSettings(): Record<string, unknown> {
 function saveSettings(settings: Record<string, unknown>): void {
   const dir = path.dirname(SETTINGS_PATH);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
 }
 
 interface HookEntry {

@@ -42,6 +42,7 @@ export interface QueueItem {
   displayText: string;
   resolve: (response: PermissionResponse) => void;
   createdAt: number;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 /** レンダラーに送信するポップアップデータ */

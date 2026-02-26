@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { TrayManager } from './tray';
 import { NotifierServer } from './server';
 import type { PopupData, NotificationPopupData } from '../shared/types';
@@ -48,11 +48,19 @@ function createWindow(): BrowserWindow {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
   window.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+
+  // ナビゲーション・ポップアップ制限
+  window.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  window.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
 
   window.webContents.on('did-finish-load', () => {
     rendererReady = true;
@@ -224,6 +232,19 @@ function showNextNotificationOrHide(): void {
 }
 
 app.whenReady().then(async () => {
+  // Content Security Policy（開発時は webpack dev server 用に緩和）
+  const csp = app.isPackaged
+    ? "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'"
+    : "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' ws:";
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
+
   // Hide dock icon - menu bar only app
   app.dock?.hide();
 
@@ -269,8 +290,14 @@ app.whenReady().then(async () => {
   }
 
   // IPC handlers
-  ipcMain.on('permission-response', (_event, { id, decision }: { id: string; decision: 'allow' | 'deny' | 'skip' }) => {
-    server.respondToPermission(id, decision);
+  ipcMain.on('permission-response', (_event, payload: unknown) => {
+    // ランタイム検証
+    if (typeof payload !== 'object' || payload === null) return;
+    const { id, decision } = payload as Record<string, unknown>;
+    if (typeof id !== 'string') return;
+    if (!['allow', 'deny', 'skip'].includes(decision as string)) return;
+
+    server.respondToPermission(id, decision as 'allow' | 'deny' | 'skip');
 
     // Show next permission, queued notification, or hide
     if (server.getQueueLength() > 0) {

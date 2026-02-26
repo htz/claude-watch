@@ -1,4 +1,5 @@
 import http from 'http';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { analyzeToolDanger } from '../shared/danger-level';
@@ -7,10 +8,11 @@ import { SOCKET_DIR, SOCKET_PATH } from '../shared/constants';
 import type { PermissionRequest, PermissionResponse, NotificationRequest, QueueItem, PopupData, NotificationPopupData } from '../shared/types';
 
 const PERMISSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
+const MAX_QUEUE_SIZE = 100;
 
 function generateId(): string {
-  // Simple UUID-like ID using crypto
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  return crypto.randomUUID();
 }
 
 export interface ServerCallbacks {
@@ -29,8 +31,9 @@ export class NotifierServer {
 
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Ensure socket directory exists
-      fs.mkdirSync(SOCKET_DIR, { recursive: true });
+      // Ensure socket directory exists with restrictive permissions
+      fs.mkdirSync(SOCKET_DIR, { recursive: true, mode: 0o700 });
+      fs.chmodSync(SOCKET_DIR, 0o700);
 
       // Clean up stale socket file from previous crash
       try { fs.unlinkSync(SOCKET_PATH); } catch {}
@@ -44,6 +47,8 @@ export class NotifierServer {
       });
 
       this.server.listen(SOCKET_PATH, () => {
+        // ソケットファイルを所有者のみアクセス可能に制限
+        try { fs.chmodSync(SOCKET_PATH, 0o600); } catch {}
         console.log(`Notifier server listening on ${SOCKET_PATH}`);
         resolve();
       });
@@ -51,8 +56,9 @@ export class NotifierServer {
   }
 
   stop(): void {
-    // Deny all pending requests
+    // Deny all pending requests and clear timers
     for (const item of this.queue) {
+      clearTimeout(item.timer);
       item.resolve({ decision: 'deny' });
     }
     this.queue = [];
@@ -72,6 +78,7 @@ export class NotifierServer {
     if (index === -1) return;
 
     const item = this.queue[index];
+    clearTimeout(item.timer);
     item.resolve({ decision });
     this.queue.splice(index, 1);
   }
@@ -109,15 +116,35 @@ export class NotifierServer {
     }
 
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let aborted = false;
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > MAX_BODY_SIZE) {
+        aborted = true;
+        res.writeHead(413);
+        res.end(JSON.stringify({ error: 'Payload too large' }));
+        req.destroy();
+      }
+    });
     req.on('end', () => {
+      if (aborted) return;
       try {
         const data = JSON.parse(body);
 
         if (url === '/permission') {
-          this.handlePermission(data as PermissionRequest, res);
+          if (!this.validatePermissionRequest(data)) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Invalid permission request' }));
+            return;
+          }
+          this.handlePermission(data, res);
         } else if (url === '/notification') {
-          this.handleNotification(data as NotificationRequest, res);
+          if (!this.validateNotificationRequest(data)) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Invalid notification request' }));
+            return;
+          }
+          this.handleNotification(data, res);
         } else {
           res.writeHead(404);
           res.end(JSON.stringify({ error: 'Not found' }));
@@ -129,26 +156,41 @@ export class NotifierServer {
     });
   }
 
+  private validatePermissionRequest(data: unknown): data is PermissionRequest {
+    if (typeof data !== 'object' || data === null) return false;
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.tool_name !== 'string') return false;
+    if (obj.tool_input !== undefined && (typeof obj.tool_input !== 'object' || obj.tool_input === null)) return false;
+    if (obj.session_cwd !== undefined && typeof obj.session_cwd !== 'string') return false;
+    return true;
+  }
+
+  private validateNotificationRequest(data: unknown): data is NotificationRequest {
+    if (typeof data !== 'object' || data === null) return false;
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.message !== 'string') return false;
+    if (obj.title !== undefined && typeof obj.title !== 'string') return false;
+    if (obj.type !== undefined && !['info', 'stop', 'question'].includes(obj.type as string)) return false;
+    if (obj.session_cwd !== undefined && typeof obj.session_cwd !== 'string') return false;
+    return true;
+  }
+
   private handlePermission(request: PermissionRequest, res: http.ServerResponse): void {
+    // キューサイズ制限
+    if (this.queue.length >= MAX_QUEUE_SIZE) {
+      res.writeHead(429);
+      res.end(JSON.stringify({ error: 'Too many pending requests' }));
+      return;
+    }
+
     const dangerInfo = analyzeToolDanger(request.tool_name, request.tool_input as Record<string, unknown>);
     const { displayText, detail } = describeToolAction(request.tool_name, request.tool_input as Record<string, unknown>);
     const id = generateId();
 
     // Promise that resolves when user responds
     const responsePromise = new Promise<PermissionResponse>((resolve) => {
-      const item: QueueItem = {
-        id,
-        request,
-        dangerInfo,
-        description: detail,
-        displayText,
-        resolve,
-        createdAt: Date.now(),
-      };
-      this.queue.push(item);
-
       // Timeout: auto-deny after 5 minutes
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         const idx = this.queue.findIndex(i => i.id === id);
         if (idx !== -1) {
           this.queue[idx].resolve({ decision: 'deny' });
@@ -158,6 +200,18 @@ export class NotifierServer {
           }
         }
       }, PERMISSION_TIMEOUT);
+
+      const item: QueueItem = {
+        id,
+        request,
+        dangerInfo,
+        description: detail,
+        displayText,
+        resolve,
+        createdAt: Date.now(),
+        timer,
+      };
+      this.queue.push(item);
 
       // Show popup if this is the first item (or currently displayed)
       if (this.queue.length === 1) {

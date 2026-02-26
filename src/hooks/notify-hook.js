@@ -14,6 +14,7 @@ const os = require('os');
 
 const SOCKET_PATH = path.join(os.homedir(), '.claude-code-notifier', 'notifier.sock');
 const TIMEOUT_MS = 5000;
+const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
 
 function sendNotification(message, title, type) {
   return new Promise((resolve) => {
@@ -49,6 +50,9 @@ async function main() {
   let input = '';
   for await (const chunk of process.stdin) {
     input += chunk;
+    if (input.length > MAX_STDIN_SIZE) {
+      process.exit(0);
+    }
   }
 
   let data;

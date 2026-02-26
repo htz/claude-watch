@@ -3,18 +3,21 @@ import type { NotifierAPI, PopupData, NotificationPopupData } from '../shared/ty
 
 const api: NotifierAPI = {
   onPermission: (callback: (data: PopupData) => void) => {
+    ipcRenderer.removeAllListeners('permission-request');
     ipcRenderer.on('permission-request', (_event, data: PopupData) => {
       callback(data);
     });
   },
 
   onNotification: (callback: (data: NotificationPopupData) => void) => {
+    ipcRenderer.removeAllListeners('notification');
     ipcRenderer.on('notification', (_event, data: NotificationPopupData) => {
       callback(data);
     });
   },
 
   onQueueUpdate: (callback: (count: number) => void) => {
+    ipcRenderer.removeAllListeners('queue-update');
     ipcRenderer.on('queue-update', (_event, count: number) => {
       callback(count);
     });

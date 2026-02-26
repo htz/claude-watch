@@ -29,6 +29,7 @@ const os = require('os');
 
 const SOCKET_PATH = path.join(os.homedir(), '.claude-code-notifier', 'notifier.sock');
 const TIMEOUT_MS = 300000; // 5 minutes
+const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
 
 /**
  * Parse a permissions list (allow/deny/ask) into Bash command patterns and tool patterns.
@@ -101,6 +102,9 @@ function findProjectRoot(cwd) {
  *   1. ~/.claude/settings.json          (グローバル)
  *   2. <project>/.claude/settings.json  (プロジェクト)
  *   3. <project>/.claude/settings.local.json (プロジェクトローカル)
+ *
+ * セキュリティ: プロジェクト設定からは deny/ask のみマージ可能。
+ * allow はグローバル設定 (~/.claude/settings.json) のみ適用される。
  */
 function loadPermissionSettings(cwd) {
   const empty = { bashPatterns: [], toolPatterns: [] };
@@ -110,24 +114,33 @@ function loadPermissionSettings(cwd) {
     ask: { ...empty },
   };
 
-  // 読み込む設定ファイルのパスリスト
-  const settingsFiles = [
-    path.join(os.homedir(), '.claude', 'settings.json'),
-  ];
-
-  const projectRoot = findProjectRoot(cwd || process.cwd());
-  if (projectRoot) {
-    settingsFiles.push(path.join(projectRoot, '.claude', 'settings.json'));
-    settingsFiles.push(path.join(projectRoot, '.claude', 'settings.local.json'));
+  // グローバル設定: allow/deny/ask 全てマージ
+  const globalPath = path.join(os.homedir(), '.claude', 'settings.json');
+  const globalPerms = readSettingsFile(globalPath);
+  if (globalPerms) {
+    for (const key of ['allow', 'deny', 'ask']) {
+      if (globalPerms[key]) {
+        result[key] = mergePermissionLists(result[key], parsePermissionList(globalPerms[key]));
+      }
+    }
   }
 
-  for (const filePath of settingsFiles) {
-    const perms = readSettingsFile(filePath);
-    if (!perms) continue;
+  // プロジェクト設定: deny/ask のみマージ（allow はセキュリティ上無視）
+  const projectRoot = findProjectRoot(cwd || process.cwd());
+  if (projectRoot) {
+    const projectFiles = [
+      path.join(projectRoot, '.claude', 'settings.json'),
+      path.join(projectRoot, '.claude', 'settings.local.json'),
+    ];
 
-    for (const key of ['allow', 'deny', 'ask']) {
-      if (perms[key]) {
-        result[key] = mergePermissionLists(result[key], parsePermissionList(perms[key]));
+    for (const filePath of projectFiles) {
+      const perms = readSettingsFile(filePath);
+      if (!perms) continue;
+
+      for (const key of ['deny', 'ask']) {
+        if (perms[key]) {
+          result[key] = mergePermissionLists(result[key], parsePermissionList(perms[key]));
+        }
       }
     }
   }
@@ -268,10 +281,13 @@ function requestPermission(toolName, toolInput) {
 }
 
 async function main() {
-  // Read stdin
+  // Read stdin (with size limit)
   let input = '';
   for await (const chunk of process.stdin) {
     input += chunk;
+    if (input.length > MAX_STDIN_SIZE) {
+      process.exit(0);
+    }
   }
 
   let data;

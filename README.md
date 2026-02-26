@@ -41,49 +41,17 @@ mv "Claude Watch.app" /Applications/
 
 ### フック登録
 
-インストール後、Claude Code のフックを `~/.claude/settings.json` に登録します。
+インストール後、セットアップスクリプトで Claude Code のフックを登録します:
 
-以下を `~/.claude/settings.json` の `hooks` に追加してください:
+```bash
+# 全フック一括登録
+node "/Applications/Claude Watch.app/Contents/Resources/hooks/setup.js" --all
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "^(Bash|Edit|Write|WebFetch|NotebookEdit|Task|mcp__.+)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/Applications/Claude Watch.app/Contents/Resources/hooks/permission-hook.js\"",
-            "timeout": 300
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/Applications/Claude Watch.app/Contents/Resources/hooks/notify-hook.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/Applications/Claude Watch.app/Contents/Resources/hooks/stop-hook.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
+# 対話式 (フック種類・対象ツールを個別選択)
+node "/Applications/Claude Watch.app/Contents/Resources/hooks/setup.js"
+
+# フック削除
+node "/Applications/Claude Watch.app/Contents/Resources/hooks/setup.js" --remove
 ```
 
 登録後、Claude Watch を起動してください:

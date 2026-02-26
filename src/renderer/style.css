@@ -178,8 +178,9 @@ html, body {
 .actions {
   display: flex;
   gap: 8px;
-  padding: 0 4px 8px;
+  padding: 8px 4px;
   flex-shrink: 0;
+  border-top: 0.5px solid var(--border);
 }
 
 .btn {

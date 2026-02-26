@@ -842,12 +842,14 @@ async function main() {
   // ask リスト、またはどのリストにも含まれない → ポップアップ表示へ進む
 
   // 未許可コマンド情報を算出 (Bash のみ)
+  // 全サブコマンドが allow にマッチしていればポップアップ不要で自動許可
   let unmatchedCommands = undefined;
   if (toolName === 'Bash' && command) {
     const { unmatched, hasUnresolvable } = extractUnmatchedCommands(command, perms.allow.bashPatterns);
-    if (unmatched.length > 0 || hasUnresolvable) {
-      unmatchedCommands = { commands: unmatched, hasUnresolvable };
+    if (unmatched.length === 0 && !hasUnresolvable) {
+      process.exit(0);
     }
+    unmatchedCommands = { commands: unmatched, hasUnresolvable };
   }
 
   // Check if app is running

@@ -7,8 +7,8 @@ Claude Code のツール実行時に macOS メニューバーからパーミッ�
 ## 特徴
 
 - **パーミッションポップアップ** — `Bash`, `Edit`, `Write` など危険なツール実行前に許可/拒否を選択
-- **settings.json 権限チェック** — Claude Code の `permissions` (allow/deny/ask) を尊重し、allow 済みツールはポップアップをスキップ
-- **危険度バッジ** — コマンドを自動分析し、5段階 (安全/低/中/高/危険) で色分け表示
+- **settings.json 権限チェック** — Claude Code の `permissions` (deny/ask/allow) を尊重し、deny → ask → allow の順で評価
+- **危険度バッジ** — コマンドを自動分析し、5段階 (安全/低/中/高/危険) で色分け表示。ask リストにマッチしたツールは最低 HIGH に引き上げ
 - **タスク通知** — Notification / Stop フックによるリアルタイム通知
 - **キューイング** — 複数リクエストを順番に処理、待機件数を表示
 - **キーボードショートカット** — Enter で許可、Esc で拒否
@@ -119,20 +119,22 @@ npm start
 Claude Code  ──hook──▶  permission-hook.js  ──HTTP──▶  Electron App
                               │                             │
                          settings.json                ポップアップ表示
-                         権限チェック                       │
-                              │                       ユーザー応答
-                         deny → 即拒否                      │
+                         権限チェック                  (危険度バッジ付き)
+                              │                             │
+                         deny → 即拒否                 ユーザー応答
+                         ask  → ポップアップへ ────▶        │
                          allow → フォールスルー              │
-                         ask/未登録 ──────────────▶  ポップアップへ
+                         未登録 → ポップアップへ ───▶        │
                                                            │
 Claude Code  ◀─────────  allow / deny / skip  ◀────────────┘
 ```
 
 1. Claude Code がツールを実行しようとすると、`settings.json` に登録されたフックスクリプトが起動
-2. フックスクリプトが `settings.json` の `permissions` (allow/deny/ask) を確認:
+2. フックスクリプトが `settings.json` の `permissions` (deny/ask/allow) を **deny → ask → allow** の順で評価:
    - **deny** リストにマッチ → ポップアップなしで即座に拒否
+   - **ask** リストにマッチ → ポップアップ表示へ (危険度を最低 HIGH に引き上げ)
    - **allow** リストにマッチ → ポップアップなしで Claude 本体の許可処理にフォールスルー
-   - **ask** リストまたは未登録 → 次のステップへ
+   - **未登録** → ポップアップ表示へ
 3. Unix ドメインソケット経由で Electron アプリにリクエスト送信
 4. メニューバーからポップアップが表示され、ユーザーが許可/拒否を選択
 5. 応答がフックスクリプト経由で Claude Code に返却される
@@ -141,11 +143,13 @@ Claude Code  ◀─────────  allow / deny / skip  ◀───�
 
 フックスクリプトは以下の設定ファイルを全てマージして権限チェックを行います:
 
-| 優先順 | パス | 用途 |
+| 優先順 | パス | 適用されるリスト |
 |---|---|---|
-| 1 | `~/.claude/settings.json` | グローバル設定 |
-| 2 | `<project>/.claude/settings.json` | プロジェクト設定 (Git 管理) |
-| 3 | `<project>/.claude/settings.local.json` | プロジェクトローカル設定 |
+| 1 | `~/.claude/settings.json` | allow / deny / ask 全て |
+| 2 | `<project>/.claude/settings.json` | deny / ask のみ (allow は無視※) |
+| 3 | `<project>/.claude/settings.local.json` | allow / deny / ask 全て |
+
+※ プロジェクト設定 (Git 管理) の allow は悪意あるリポジトリ対策として無視されます。
 
 これにより、Claude Code 本体の権限設定と一貫した動作を実現します。
 

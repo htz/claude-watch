@@ -47,9 +47,9 @@ npm run make        # DMG/ZIP 作成
 ### パーミッションフックの権限チェック (`permission-hook.js`)
 - `settings.json` の `permissions` (allow/deny/ask) を尊重し、Claude 本体と同じ判断を行う
 - **設定ファイルの読み込み** (全てマージ):
-  1. `~/.claude/settings.json` (グローバル)
-  2. `<project>/.claude/settings.json` (プロジェクト、Git 管理)
-  3. `<project>/.claude/settings.local.json` (プロジェクトローカル)
+  1. `~/.claude/settings.json` (グローバル) — allow/deny/ask 全て
+  2. `<project>/.claude/settings.json` (プロジェクト、Git 管理) — deny/ask のみ (allow はセキュリティ上無視)
+  3. `<project>/.claude/settings.local.json` (プロジェクトローカル、Git 非管理) — allow/deny/ask 全て
 - **判定フロー**:
   - `deny` リストにマッチ → 即座に `permissionDecision: 'deny'` (ポップアップなし)
   - `allow` リストにマッチ → `exit(0)` で Claude 本体にフォールスルー (ポップアップなし)

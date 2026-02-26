@@ -143,21 +143,28 @@ function loadPermissionSettings(cwd) {
     }
   }
 
-  // プロジェクト設定: deny/ask のみマージ（allow はセキュリティ上無視）
+  // プロジェクト設定のマージ
   const projectRoot = findProjectRoot(cwd || process.cwd());
   if (projectRoot) {
-    const projectFiles = [
-      path.join(projectRoot, '.claude', 'settings.json'),
-      path.join(projectRoot, '.claude', 'settings.local.json'),
-    ];
-
-    for (const filePath of projectFiles) {
-      const perms = readSettingsFile(filePath);
-      if (!perms) continue;
-
+    // settings.json (Git 管理): deny/ask のみ（悪意あるリポジトリ対策で allow は無視）
+    const projectSettingsPath = path.join(projectRoot, '.claude', 'settings.json');
+    const projectPerms = readSettingsFile(projectSettingsPath);
+    if (projectPerms) {
       for (const key of ['deny', 'ask']) {
-        if (perms[key]) {
-          result[key] = mergePermissionLists(result[key], parsePermissionList(perms[key]));
+        if (projectPerms[key]) {
+          result[key] = mergePermissionLists(result[key], parsePermissionList(projectPerms[key]));
+        }
+      }
+    }
+
+    // settings.local.json (ローカル専用、Git 非管理): allow/deny/ask 全てマージ
+    // ユーザーが手動または Claude Code の「このプロジェクトで常に許可」で作成するファイル
+    const localSettingsPath = path.join(projectRoot, '.claude', 'settings.local.json');
+    const localPerms = readSettingsFile(localSettingsPath);
+    if (localPerms) {
+      for (const key of ['allow', 'deny', 'ask']) {
+        if (localPerms[key]) {
+          result[key] = mergePermissionLists(result[key], parsePermissionList(localPerms[key]));
         }
       }
     }
@@ -167,9 +174,88 @@ function loadPermissionSettings(cwd) {
 }
 
 /**
+ * シェルの構文状態（クォート・$() 深さ）を行単位で更新する。
+ * 複数行にまたがるダブルクォート・シングルクォート・$() を追跡し、
+ * extractCommandLines で行を正しく結合するために使用する。
+ *
+ * @param {string} line - 解析対象の行
+ * @param {{ subshellDepth: number, inDoubleQuote: boolean, inSingleQuote: boolean }} state
+ * @returns {{ subshellDepth: number, inDoubleQuote: boolean, inSingleQuote: boolean }}
+ */
+function updateShellState(line, state) {
+  let { subshellDepth, inDoubleQuote, inSingleQuote } = state;
+  let i = 0;
+
+  while (i < line.length) {
+    const ch = line[i];
+
+    if (inSingleQuote) {
+      if (ch === "'") inSingleQuote = false;
+      i++;
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      if (ch === '\\' && i + 1 < line.length) {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDoubleQuote = false;
+        i++;
+        continue;
+      }
+      if (ch === '$' && i + 1 < line.length && line[i + 1] === '(') {
+        subshellDepth++;
+        i += 2;
+        continue;
+      }
+      if (ch === ')' && subshellDepth > 0) {
+        subshellDepth--;
+        i++;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    // 通常モード
+    if (ch === '\\' && i + 1 < line.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "'") {
+      inSingleQuote = true;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inDoubleQuote = true;
+      i++;
+      continue;
+    }
+    if (ch === '$' && i + 1 < line.length && line[i + 1] === '(') {
+      subshellDepth++;
+      i += 2;
+      continue;
+    }
+    if (ch === ')' && subshellDepth > 0) {
+      subshellDepth--;
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+
+  return { subshellDepth, inDoubleQuote, inSingleQuote };
+}
+
+/**
  * 複数行コマンドから実際のコマンド行を抽出する。
  * - ヒアドキュメント (<< MARKER ... MARKER) の内容をスキップ
  * - 行継続 (末尾 \) を結合
+ * - $() が複数行にまたがる場合は結合（ヒアドキュメント内を含む）
  * - 空行を除去
  */
 function extractCommandLines(fullCommand) {
@@ -177,6 +263,7 @@ function extractCommandLines(fullCommand) {
   const commands = [];
   let heredocDelimiter = null;
   let continuationBuffer = '';
+  let shellState = { subshellDepth: 0, inDoubleQuote: false, inSingleQuote: false };
 
   for (let i = 0; i < rawLines.length; i++) {
     const line = rawLines[i];
@@ -191,7 +278,7 @@ function extractCommandLines(fullCommand) {
       continue;
     }
 
-    // 行継続の結合
+    // 行継続・クォート継続・サブシェル継続の結合
     if (continuationBuffer) {
       continuationBuffer += ' ' + line.trim();
     } else {
@@ -204,18 +291,30 @@ function extractCommandLines(fullCommand) {
     }
 
     const completeLine = continuationBuffer.trim();
-    continuationBuffer = '';
+    const needsContinuation = shellState.subshellDepth > 0 || shellState.inDoubleQuote || shellState.inSingleQuote;
 
-    if (!completeLine) continue;
+    if (!completeLine) {
+      if (!needsContinuation) continuationBuffer = '';
+      continue;
+    }
 
     // ヒアドキュメント開始を検出 (<<, <<-, 引用符付きデリミタ)
-    // 同一行に複数の << がある場合は最後のものを採用
-    const heredocMatches = [...completeLine.matchAll(/<<-?\s*\\?['"]?(\w+)['"]?/g)];
+    // 継続中は raw line のみ検査（バッファ内の << の再検出を防止）
+    const heredocSource = needsContinuation ? line : completeLine;
+    const heredocMatches = [...heredocSource.matchAll(/<<-?\s*\\?['"]?(\w+)['"]?/g)];
     if (heredocMatches.length > 0) {
       heredocDelimiter = heredocMatches[heredocMatches.length - 1][1];
     }
 
+    // シェル構文状態を更新（raw line 単位で判定）
+    shellState = updateShellState(line, shellState);
+
+    // 未閉じのクォートや $() がある場合は次の行と結合するため継続
+    if (shellState.subshellDepth > 0 || shellState.inDoubleQuote || shellState.inSingleQuote) continue;
+
+    // 行を確定
     commands.push(completeLine);
+    continuationBuffer = '';
   }
 
   // 残りの継続バッファ
@@ -894,4 +993,4 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString, extractUnmatchedCommands };
+module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString, extractUnmatchedCommands, updateShellState };

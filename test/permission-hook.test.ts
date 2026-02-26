@@ -21,6 +21,7 @@ const {
   extractAllSubCommands,
   extractDollarParenFromString,
   extractUnmatchedCommands,
+  updateShellState,
 } = require('../src/hooks/permission-hook');
 
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
@@ -325,6 +326,48 @@ describe('extractCommandLines', () => {
   it('should handle multiple heredocs in sequence', () => {
     const cmd = `cat << 'A'\nfoo\nA\ncat << 'B'\nbar\nB`;
     expect(extractCommandLines(cmd)).toEqual(["cat << 'A'", "cat << 'B'"]);
+  });
+
+  it('should join multi-line $() containing heredoc', () => {
+    const cmd = `git commit -m "$(cat <<'EOF'\nfix: test\n\n- detail\nEOF\n)" && rm -f /tmp/marker`;
+    const result = extractCommandLines(cmd);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('git commit');
+    expect(result[0]).toContain('rm -f /tmp/marker');
+    expect(result[0]).not.toMatch(/^[)]/);
+  });
+
+  it('should join multi-line $() without heredoc', () => {
+    const cmd = `echo "$(cat\nfile.txt\n)"`;
+    const result = extractCommandLines(cmd);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('echo');
+    expect(result[0]).toContain('file.txt');
+  });
+
+  it('should join multi-line double-quoted string', () => {
+    const cmd = `echo "\na\nb\nc\n"`;
+    const result = extractCommandLines(cmd);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('echo');
+    expect(result[0]).toContain('a');
+    expect(result[0]).toContain('c');
+  });
+
+  it('should join multi-line single-quoted string', () => {
+    const cmd = `echo '\nhello\nworld\n'`;
+    const result = extractCommandLines(cmd);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('echo');
+    expect(result[0]).toContain('hello');
+  });
+
+  it('should handle multi-line quote followed by another command', () => {
+    const cmd = `echo "\nmulti\nline\n" && git status`;
+    const result = extractCommandLines(cmd);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain('echo');
+    expect(result[0]).toContain('git status');
   });
 });
 
@@ -838,8 +881,9 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
 
-    // プロジェクト設定の allow は無視される（セキュリティ対策）
-    expect(result.allow.bashPatterns).toEqual(['git:*']);
+    // settings.json (Git 管理) の allow は無視される（セキュリティ対策）
+    // settings.local.json (ローカル) の allow はマージされる
+    expect(result.allow.bashPatterns).toEqual(['git:*', 'npm:*']);
     expect(result.allow.toolPatterns).toEqual([]);
     expect(result.deny.bashPatterns).toEqual(['sudo:*']);
     expect(result.ask.bashPatterns).toEqual(['docker:*']);
@@ -1047,5 +1091,13 @@ describe('extractUnmatchedCommands', () => {
     const result = extractUnmatchedCommands(cmd, ['echo:*', 'expr:*']);
     expect(result.unmatched).toEqual(['head -5']);
     expect(result.hasUnresolvable).toBe(false);
+  });
+
+  it('should not produce ) as unmatched for multi-line $() with heredoc', () => {
+    const cmd = `touch /tmp/marker && git commit -m "$(cat <<'EOF'\nfix: test\nEOF\n)" && rm -f /tmp/marker`;
+    const result = extractUnmatchedCommands(cmd, ['touch:*', 'git:*', 'cat:*']);
+    // rm だけが未許可、) が独立コマンドになってはいけない
+    expect(result.unmatched.some(c => c === ')')).toBe(false);
+    expect(result.unmatched.some(c => c.startsWith('rm'))).toBe(true);
   });
 });

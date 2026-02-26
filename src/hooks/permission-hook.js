@@ -27,6 +27,24 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// shell-quote: 開発時は node_modules、パッケージ時は extraResource から解決
+let shellParse;
+try {
+  shellParse = require('shell-quote').parse;
+} catch {
+  try {
+    shellParse = require(path.join(__dirname, '..', 'shell-quote')).parse;
+  } catch {
+    shellParse = null;
+  }
+}
+
+// shell-quote の変数展開を抑止する Proxy ($HOME → "$HOME" のまま保持)
+const NO_EXPAND_ENV = new Proxy({}, { get: (_, key) => '$' + key });
+
+// コマンド区切り演算子
+const COMMAND_SEPARATORS = new Set(['&&', '||', ';', '|', '&']);
+
 const SOCKET_PATH = path.join(os.homedir(), '.claude-watch', 'watch.sock');
 const TIMEOUT_MS = 300000; // 5 minutes
 const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
@@ -149,38 +167,288 @@ function loadPermissionSettings(cwd) {
 }
 
 /**
- * Check if a Bash command matches any of the given patterns.
- * 改行を含むコマンドは各行を個別にチェックし、全行がマッチした場合のみ true を返す。
+ * 複数行コマンドから実際のコマンド行を抽出する。
+ * - ヒアドキュメント (<< MARKER ... MARKER) の内容をスキップ
+ * - 行継続 (末尾 \) を結合
+ * - 空行を除去
  */
-function matchesCommandPattern(command, patterns) {
-  // 改行を含むコマンドは各行を個別にチェック（改行インジェクション防止）
-  if (command.includes('\n')) {
-    const lines = command.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    // 全行がパターンにマッチする場合のみ許可（1行でもマッチしなければ false）
-    return lines.length > 0 && lines.every(line => matchesCommandPattern(line, patterns));
+function extractCommandLines(fullCommand) {
+  const rawLines = fullCommand.split('\n');
+  const commands = [];
+  let heredocDelimiter = null;
+  let continuationBuffer = '';
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+
+    // ヒアドキュメント内 → 閉じデリミタまでスキップ
+    if (heredocDelimiter) {
+      // <<- の場合はタブインデント付きの閉じデリミタも許容
+      const trimmed = line.replace(/^\t+/, '').trim();
+      if (trimmed === heredocDelimiter) {
+        heredocDelimiter = null;
+      }
+      continue;
+    }
+
+    // 行継続の結合
+    if (continuationBuffer) {
+      continuationBuffer += ' ' + line.trim();
+    } else {
+      continuationBuffer = line;
+    }
+
+    if (continuationBuffer.trimEnd().endsWith('\\')) {
+      continuationBuffer = continuationBuffer.trimEnd().slice(0, -1);
+      continue;
+    }
+
+    const completeLine = continuationBuffer.trim();
+    continuationBuffer = '';
+
+    if (!completeLine) continue;
+
+    // ヒアドキュメント開始を検出 (<<, <<-, 引用符付きデリミタ)
+    // 同一行に複数の << がある場合は最後のものを採用
+    const heredocMatches = [...completeLine.matchAll(/<<-?\s*\\?['"]?(\w+)['"]?/g)];
+    if (heredocMatches.length > 0) {
+      heredocDelimiter = heredocMatches[heredocMatches.length - 1][1];
+    }
+
+    commands.push(completeLine);
   }
+
+  // 残りの継続バッファ
+  if (continuationBuffer.trim()) {
+    commands.push(continuationBuffer.trim());
+  }
+
+  return commands;
+}
+
+/**
+ * コマンド行先頭の環境変数代入 (VAR=value) を除去して実際のコマンドを返す。
+ * 対応形式: VAR=val, VAR="val", VAR='val', 複数連続 (A=1 B=2 cmd)
+ * 純粋な変数代入のみの行 (コマンドなし) は空文字を返す。
+ */
+function stripLeadingEnvVars(command) {
+  return command.replace(/^(?:\w+=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)\s+)+/, '');
+}
+
+/**
+ * 行が純粋な変数代入 (コマンド実行なし) かどうか判定する。
+ * export VAR=val, VAR=val (末尾にコマンドなし) にマッチ。
+ */
+function isPureAssignment(line) {
+  return /^(?:export\s+)?\w+=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)$/.test(line.trim());
+}
+
+/**
+ * コマンド行をシェル演算子 (&&, ||, ;, |, &) で分割する。
+ * shell-quote でトークナイズし、コマンド区切り演算子で分割する。
+ * クォート・エスケープは shell-quote が正しく処理する。
+ */
+function splitOnOperators(command) {
+  if (!shellParse) return [command];
+
+  let tokens;
+  try {
+    tokens = shellParse(command, NO_EXPAND_ENV);
+  } catch {
+    return [command];
+  }
+
+  const commands = [];
+  let current = [];
+
+  for (const token of tokens) {
+    if (typeof token === 'object' && token.op && COMMAND_SEPARATORS.has(token.op)) {
+      // コマンド区切り演算子 → ここまでを1コマンドとして確定
+      if (current.length > 0) {
+        commands.push(current.join(' '));
+        current = [];
+      }
+    } else if (typeof token === 'object' && token.pattern) {
+      // グロブパターン (*.txt 等) — op: "glob" より pattern を優先
+      current.push(token.pattern);
+    } else if (typeof token === 'string') {
+      current.push(token);
+    } else if (typeof token === 'object' && token.op) {
+      // リダイレクト (>, <, >>, >&, etc.) やサブシェル括弧 → コマンドの一部として保持
+      current.push(token.op);
+    }
+    // {comment: "..."} はスキップ
+  }
+
+  if (current.length > 0) {
+    commands.push(current.join(' '));
+  }
+
+  return commands.length > 0 ? commands : [command];
+}
+
+/**
+ * コマンドにシェルのコマンド置換 ($() や バッククォート) が含まれるか検出する。
+ * shell-quote のトークンを解析: $ + ( 演算子 = 非クォート $()、
+ * 文字列トークン内の $( や ` = クォート内の置換。
+ *
+ * 注意: shell-quote はシングルクォートとダブルクォートの区別を保持しないため、
+ * '$(safe)' もダブルクォート内と同様に検出される (安全側に倒す)。
+ */
+function containsCommandSubstitution(command) {
+  if (!shellParse) return false;
+
+  let tokens;
+  try {
+    tokens = shellParse(command, NO_EXPAND_ENV);
+  } catch {
+    return true; // パース失敗 → 安全側: 置換ありとみなす
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (typeof token !== 'string') continue;
+
+    // 非クォート $(): "$" トークン + "(" 演算子
+    if (token === '$' && i + 1 < tokens.length &&
+        typeof tokens[i + 1] === 'object' && tokens[i + 1].op === '(') {
+      return true;
+    }
+
+    // 文字列トークン内の $( (クォート内 $())
+    if (/\$\(/.test(token)) return true;
+
+    // バッククォート
+    if (token.includes('`')) return true;
+  }
+
+  return false;
+}
+
+/**
+ * 単一行コマンドがパターンリストのいずれかにマッチするか判定する。
+ * 先頭の環境変数代入 (FOO=bar cmd) を除去してからパターン照合する。
+ */
+function matchesSingleCommand(command, patterns) {
+  // 環境変数プレフィックスを除去 (例: "NODE_ENV=test npm test" → "npm test")
+  const cmd = stripLeadingEnvVars(command) || command;
 
   for (const pattern of patterns) {
     if (pattern.endsWith(':*')) {
       // Prefix match: "cat:*" matches "cat foo.txt"
       const prefix = pattern.slice(0, -2);
-      if (command === prefix || command.startsWith(prefix + ' ') || command.startsWith(prefix + '\t')) {
+      if (cmd === prefix || cmd.startsWith(prefix + ' ') || cmd.startsWith(prefix + '\t')) {
         return true;
       }
     } else if (pattern.includes('*')) {
       // Simple glob: convert to regex（連続する * を単一の .* に正規化して ReDoS を防止）
       const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*+/g, '.*');
-      if (new RegExp(`^${escaped}$`).test(command)) {
+      if (new RegExp(`^${escaped}$`).test(cmd)) {
         return true;
       }
     } else {
       // Exact match
-      if (command === pattern || command.startsWith(pattern + ' ')) {
+      if (cmd === pattern || cmd.startsWith(pattern + ' ')) {
         return true;
       }
     }
   }
   return false;
+}
+
+/**
+ * シェル制御構文の行を正規化する。
+ * - 純粋な構文キーワード (then, fi, done 等) → null (除外)
+ * - if/elif COND; then → 条件コマンドを抽出
+ * - while/until COND; do → 条件コマンドを抽出
+ * - for/case/case分岐パターン → null (構文的要素)
+ * - それ以外 → そのまま返す
+ */
+function normalizeShellLine(line) {
+  const trimmed = line.trim();
+
+  // 純粋な構文キーワード (リダイレクト・コメント付きも許容: done < file, fi # comment)
+  if (/^(then|else|fi|do|done|esac)\b/.test(trimmed) || /^(;;|\{|\})(\s|$)/.test(trimmed)) return null;
+
+  // for VAR in ...; do  /  for ((expr)); do
+  if (/^for\s+/.test(trimmed)) return null;
+
+  // case ... in
+  if (/^case\s+.+\s+in$/.test(trimmed)) return null;
+
+  // case 分岐パターン (例: foo), *.txt|*.md), *)  )
+  if (/^[^(]*\)\s*$/.test(trimmed)) return null;
+
+  // if/elif CONDITION; then → 条件コマンドを抽出
+  const ifMatch = trimmed.match(/^(?:if|elif)\s+(.*?)\s*;\s*then$/);
+  if (ifMatch) return ifMatch[1];
+
+  // while/until CONDITION; do → 条件コマンドを抽出
+  const whileMatch = trimmed.match(/^(?:while|until)\s+(.*?)\s*;\s*do$/);
+  if (whileMatch) return whileMatch[1];
+
+  // if/elif (then が次行)
+  const ifNoThen = trimmed.match(/^(?:if|elif)\s+(.+)$/);
+  if (ifNoThen) return ifNoThen[1];
+
+  // while/until (do が次行)
+  const whileNoDo = trimmed.match(/^(?:while|until)\s+(.+)$/);
+  if (whileNoDo) return whileNoDo[1];
+
+  return trimmed;
+}
+
+/**
+ * Check if a Bash command matches any of the given patterns.
+ *
+ * 処理フロー:
+ *   1. 複数行 → extractCommandLines (ヒアドキュメント・行継続を考慮)
+ *   2. normalizeShellLine (if/for/fi 等のシェル制御構文を正規化)
+ *   3. isPureAssignment で変数代入行を除外
+ *   4. splitOnOperators (&&, ||, ;, |, & で分割)
+ *   5. パターン照合
+ *
+ * @param {string} command - Bash コマンド文字列
+ * @param {string[]} patterns - パターンリスト
+ * @param {'all'|'any'} mode
+ *   - 'all': 全サブコマンドがマッチした場合 true (allow 用)
+ *            コマンド置換 ($(), ``) を含むサブコマンドがあれば false
+ *   - 'any': いずれかのサブコマンドがマッチした場合 true (deny 用)
+ */
+function matchesCommandPattern(command, patterns, mode) {
+  if (mode === undefined) mode = 'all';
+
+  // コマンド行を抽出・正規化
+  let lines;
+  if (command.includes('\n')) {
+    lines = extractCommandLines(command)
+      .map(cmd => normalizeShellLine(cmd))
+      .filter(cmd => cmd !== null);
+  } else {
+    lines = [command];
+  }
+
+  // allow 用: 元のコマンド行でコマンド置換を検出 (再構築前にチェック)
+  // shell-quote はクォート情報を保持しないため、再構築後の文字列では誤検出する
+  if (mode !== 'any' && lines.some(line => containsCommandSubstitution(line))) {
+    return false;
+  }
+
+  // 演算子で分割
+  const subCommands = lines
+    .filter(cmd => !isPureAssignment(cmd))
+    .flatMap(cmd => splitOnOperators(cmd))
+    .map(cmd => cmd.trim())
+    .filter(cmd => cmd && !isPureAssignment(cmd));
+
+  if (subCommands.length === 0) return false;
+
+  if (mode === 'any') {
+    // deny 用: いずれかがマッチすれば true
+    return subCommands.some(cmd => matchesSingleCommand(cmd, patterns));
+  }
+
+  return subCommands.every(cmd => matchesSingleCommand(cmd, patterns));
 }
 
 /**
@@ -315,8 +583,9 @@ async function main() {
   if (toolName === 'Bash' && !command) process.exit(0);
 
   // deny リスト → 即座に拒否 (ポップアップ不要)
+  // 'any' モード: いずれかのサブコマンドが deny にマッチすれば拒否
   const isDenied = toolName === 'Bash'
-    ? matchesCommandPattern(command, perms.deny.bashPatterns)
+    ? matchesCommandPattern(command, perms.deny.bashPatterns, 'any')
     : matchesToolPattern(toolName, perms.deny.toolPatterns);
 
   if (isDenied) {
@@ -381,4 +650,4 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesToolPattern };
+module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution };

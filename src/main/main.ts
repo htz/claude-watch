@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, session } from 'electron';
 import { TrayManager } from './tray';
 import { NotifierServer } from './server';
 import type { PopupData, NotificationPopupData } from '../shared/types';
@@ -19,7 +19,6 @@ let pendingPermission: PopupData | null = null;
 let pendingNotification: NotificationPopupData | null = null;
 let notificationQueue: NotificationPopupData[] = [];
 let currentView: 'permission' | 'notification' | 'none' = 'none';
-let nextShowPassive = false; // blur 後の再表示でフォーカスを奪わないフラグ
 
 const WINDOW_WIDTH = 420;
 const WINDOW_HEIGHT = 320;
@@ -93,9 +92,8 @@ function createWindow(): BrowserWindow {
         if (currentId) {
           server.respondToPermission(currentId, 'skip');
         }
-        // 残りがあればフォーカスを奪わず即座に次を表示
+        // 残りがあれば即座に次を表示
         if (server?.getQueueLength() > 0) {
-          nextShowPassive = true;
           server.reshowCurrentItem();
           return;
         }
@@ -107,29 +105,71 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-/** ウィンドウを表示（パーミッション用: フォーカスを奪う） */
-function showWindowActive(): void {
-  if (!mainWindow) return;
-  const { x, y } = trayManager.getPopupPosition(WINDOW_WIDTH, WINDOW_HEIGHT);
-  mainWindow.setPosition(x, y, false);
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  mainWindow.show();
-  mainWindow.focus();
+/** グローバルショートカットを登録（ポップアップ表示中のみ有効） */
+function registerGlobalShortcuts(): void {
+  // 許可 (パーミッションビュー) / 閉じる (通知ビュー)
+  globalShortcut.register('CommandOrControl+Return', () => {
+    if (currentView === 'permission') {
+      const currentId = getCurrentPermissionId();
+      if (currentId) {
+        server.respondToPermission(currentId, 'allow');
+        if (server.getQueueLength() > 0) {
+          server.reshowCurrentItem();
+        } else {
+          showNextNotificationOrHide();
+        }
+      }
+    } else if (currentView === 'notification') {
+      if (notificationTimer) {
+        clearTimeout(notificationTimer);
+        notificationTimer = null;
+      }
+      showNextNotificationOrHide();
+    }
+  });
+
+  // 拒否 (パーミッションビューのみ)
+  globalShortcut.register('Escape', () => {
+    if (currentView === 'permission') {
+      const currentId = getCurrentPermissionId();
+      if (currentId) {
+        server.respondToPermission(currentId, 'deny');
+        if (server.getQueueLength() > 0) {
+          server.reshowCurrentItem();
+        } else {
+          showNextNotificationOrHide();
+        }
+      }
+    } else if (currentView === 'notification') {
+      if (notificationTimer) {
+        clearTimeout(notificationTimer);
+        notificationTimer = null;
+      }
+      showNextNotificationOrHide();
+    }
+  });
 }
 
-/** ウィンドウを表示（通知用: フォーカスを奪わない） */
+function unregisterGlobalShortcuts(): void {
+  globalShortcut.unregister('CommandOrControl+Return');
+  globalShortcut.unregister('Escape');
+}
+
+/** ウィンドウを表示（フォーカスを奪わない） */
 function showWindowPassive(): void {
   if (!mainWindow) return;
   const { x, y } = trayManager.getPopupPosition(WINDOW_WIDTH, WINDOW_HEIGHT);
   mainWindow.setPosition(x, y, false);
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.showInactive();
+  registerGlobalShortcuts();
 }
 
 function hideWindow(): void {
   if (!mainWindow) return;
   currentView = 'none';
   mainWindow.hide();
+  unregisterGlobalShortcuts();
 }
 
 function getCurrentPermissionId(): string | null {
@@ -153,12 +193,7 @@ function showPermission(data: PopupData): void {
 
   currentView = 'permission';
   mainWindow.webContents.send('permission-request', data);
-  if (nextShowPassive) {
-    nextShowPassive = false;
-    showWindowPassive();
-  } else {
-    showWindowActive();
-  }
+  showWindowPassive();
 }
 
 function showNotification(data: NotificationPopupData): void {
@@ -321,6 +356,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll();
   if (server) {
     server.stop();
   }

@@ -160,7 +160,7 @@ btnOk.addEventListener('click', (e) => {
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (currentRequestId) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && e.metaKey) {
       e.preventDefault();
       respond('allow');
     } else if (e.key === 'Escape') {
@@ -168,8 +168,8 @@ document.addEventListener('keydown', (e) => {
       respond('deny');
     }
   } else {
-    // Notification view - any key dismisses
-    if (e.key === 'Escape' || e.key === 'Enter') {
+    // Notification view
+    if (e.key === 'Escape' || (e.key === 'Enter' && e.metaKey)) {
       window.notifierAPI.dismissNotification();
     }
   }

@@ -137,8 +137,16 @@ function loadPermissionSettings(cwd) {
 
 /**
  * Check if a Bash command matches any of the given patterns.
+ * 改行を含むコマンドは各行を個別にチェックし、全行がマッチした場合のみ true を返す。
  */
 function matchesCommandPattern(command, patterns) {
+  // 改行を含むコマンドは各行を個別にチェック（改行インジェクション防止）
+  if (command.includes('\n')) {
+    const lines = command.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // 全行がパターンにマッチする場合のみ許可（1行でもマッチしなければ false）
+    return lines.length > 0 && lines.every(line => matchesCommandPattern(line, patterns));
+  }
+
   for (const pattern of patterns) {
     if (pattern.endsWith(':*')) {
       // Prefix match: "cat:*" matches "cat foo.txt"
@@ -147,8 +155,8 @@ function matchesCommandPattern(command, patterns) {
         return true;
       }
     } else if (pattern.includes('*')) {
-      // Simple glob: convert to regex
-      const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+      // Simple glob: convert to regex（連続する * を単一の .* に正規化して ReDoS を防止）
+      const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*+/g, '.*');
       if (new RegExp(`^${escaped}$`).test(command)) {
         return true;
       }
@@ -172,7 +180,7 @@ function matchesToolPattern(toolName, toolPatterns) {
       return true;
     }
     if (pattern.includes('*')) {
-      const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+      const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*+/g, '.*');
       if (new RegExp(`^${escaped}$`).test(toolName)) {
         return true;
       }
@@ -336,7 +344,7 @@ async function main() {
           updatedInput: null,
         },
       });
-      process.stdout.write(output);
+      process.stdout.write(output, () => process.exit(0));
     } else {
       const output = JSON.stringify({
         hookSpecificOutput: {
@@ -344,7 +352,7 @@ async function main() {
           reason: 'ユーザーが拒否しました',
         },
       });
-      process.stdout.write(output);
+      process.stdout.write(output, () => process.exit(0));
     }
   } catch {
     // Error or timeout - fallback to normal dialog

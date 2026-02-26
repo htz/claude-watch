@@ -206,6 +206,17 @@ function getToolDangerLevel(toolName: string): DangerLevel {
 }
 
 /**
+ * 危険度を最低レベルまで引き上げる。
+ * 現在の level が minLevel より低ければ minLevel の DangerInfo を返す。
+ */
+export function elevateToMinimum(info: DangerInfo, minLevel: DangerLevel): DangerInfo {
+  const currentIdx = LEVEL_ORDER.indexOf(info.level);
+  const minIdx = LEVEL_ORDER.indexOf(minLevel);
+  if (currentIdx >= minIdx) return info;
+  return getDangerInfo(minLevel);
+}
+
+/**
  * ツール種別に対応した危険度判定
  * Bash は既存の analyzeCommand に委譲、その他はツール名から判定
  */

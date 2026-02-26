@@ -935,11 +935,14 @@ function healthCheck() {
 /**
  * Send permission request to the claude-watch app.
  */
-function requestPermission(toolName, toolInput, unmatchedCommands) {
+function requestPermission(toolName, toolInput, unmatchedCommands, isAskListed) {
   return new Promise((resolve, reject) => {
     const payload = { tool_name: toolName, tool_input: toolInput, session_cwd: process.cwd() };
     if (unmatchedCommands) {
       payload.unmatched_commands = unmatchedCommands;
+    }
+    if (isAskListed) {
+      payload.is_ask_listed = true;
     }
     const body = JSON.stringify(payload);
 
@@ -1035,6 +1038,11 @@ async function main() {
 
   // ask リスト、またはどのリストにも含まれない → ポップアップ表示へ進む
 
+  // ask リストマッチ判定
+  const isAskListed = toolName === 'Bash'
+    ? matchesCommandPattern(command, perms.ask.bashPatterns, 'any')
+    : matchesToolPattern(toolName, perms.ask.toolPatterns);
+
   // 未許可コマンド情報を算出 (Bash のみ)
   // 全サブコマンドが allow にマッチしていればポップアップ不要で自動許可
   let unmatchedCommands = undefined;
@@ -1055,7 +1063,7 @@ async function main() {
 
   // Request permission from the app
   try {
-    const response = await requestPermission(toolName, toolInput, unmatchedCommands);
+    const response = await requestPermission(toolName, toolInput, unmatchedCommands, isAskListed);
 
     if (response.decision === 'skip') {
       // Skip: no output → fallback to terminal dialog

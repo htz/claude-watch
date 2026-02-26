@@ -2,7 +2,7 @@ import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { analyzeToolDanger } from '../shared/danger-level';
+import { analyzeToolDanger, elevateToMinimum } from '../shared/danger-level';
 import { describeToolAction } from '../shared/tool-classifier';
 import { SOCKET_DIR, SOCKET_PATH } from '../shared/constants';
 import type { PermissionRequest, PermissionResponse, NotificationRequest, QueueItem, PopupData, NotificationPopupData } from '../shared/types';
@@ -168,6 +168,7 @@ export class ClaudeWatchServer {
       if (!Array.isArray(uc.commands)) return false;
       if (typeof uc.hasUnresolvable !== 'boolean') return false;
     }
+    if (obj.is_ask_listed !== undefined && typeof obj.is_ask_listed !== 'boolean') return false;
     return true;
   }
 
@@ -189,7 +190,10 @@ export class ClaudeWatchServer {
       return;
     }
 
-    const dangerInfo = analyzeToolDanger(request.tool_name, request.tool_input as Record<string, unknown>);
+    let dangerInfo = analyzeToolDanger(request.tool_name, request.tool_input as Record<string, unknown>);
+    if (request.is_ask_listed) {
+      dangerInfo = elevateToMinimum(dangerInfo, 'HIGH');
+    }
     const { displayText, detail } = describeToolAction(request.tool_name, request.tool_input as Record<string, unknown>);
     const id = generateId();
 

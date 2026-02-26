@@ -25,6 +25,7 @@ export interface PermissionRequest {
   };
   session_cwd?: string;
   unmatched_commands?: UnmatchedCommandsInfo;
+  is_ask_listed?: boolean;
 }
 
 /** パーミッション応答 */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeDangerLevel, analyzeCommand, analyzeToolDanger } from '../src/shared/danger-level';
+import { analyzeDangerLevel, analyzeCommand, analyzeToolDanger, elevateToMinimum, getDangerInfo } from '../src/shared/danger-level';
 
 describe('analyzeDangerLevel', () => {
   describe('SAFE commands', () => {
@@ -193,5 +193,43 @@ describe('analyzeToolDanger', () => {
   it('should classify unknown tools as MEDIUM', () => {
     const info = analyzeToolDanger('SomeUnknownTool', {});
     expect(info.level).toBe('MEDIUM');
+  });
+});
+
+describe('elevateToMinimum', () => {
+  it('should elevate SAFE to HIGH', () => {
+    const info = getDangerInfo('SAFE');
+    const elevated = elevateToMinimum(info, 'HIGH');
+    expect(elevated.level).toBe('HIGH');
+  });
+
+  it('should elevate LOW to HIGH', () => {
+    const info = getDangerInfo('LOW');
+    const elevated = elevateToMinimum(info, 'HIGH');
+    expect(elevated.level).toBe('HIGH');
+  });
+
+  it('should elevate MEDIUM to HIGH', () => {
+    const info = getDangerInfo('MEDIUM');
+    const elevated = elevateToMinimum(info, 'HIGH');
+    expect(elevated.level).toBe('HIGH');
+  });
+
+  it('should not change HIGH when minimum is HIGH', () => {
+    const info = getDangerInfo('HIGH');
+    const elevated = elevateToMinimum(info, 'HIGH');
+    expect(elevated.level).toBe('HIGH');
+  });
+
+  it('should not change CRITICAL when minimum is HIGH', () => {
+    const info = getDangerInfo('CRITICAL');
+    const elevated = elevateToMinimum(info, 'HIGH');
+    expect(elevated.level).toBe('CRITICAL');
+  });
+
+  it('should return the original info object when level is already sufficient', () => {
+    const info = getDangerInfo('CRITICAL');
+    const elevated = elevateToMinimum(info, 'HIGH');
+    expect(elevated).toBe(info);
   });
 });

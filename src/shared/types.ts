@@ -66,7 +66,7 @@ export interface NotificationPopupData {
 }
 
 /** preload で公開する API */
-export interface NotifierAPI {
+export interface ClaudeWatchAPI {
   onPermission: (callback: (data: PopupData) => void) => void;
   onNotification: (callback: (data: NotificationPopupData) => void) => void;
   onQueueUpdate: (callback: (count: number) => void) => void;
@@ -76,6 +76,6 @@ export interface NotifierAPI {
 
 declare global {
   interface Window {
-    notifierAPI: NotifierAPI;
+    claudeWatchAPI: ClaudeWatchAPI;
   }
 }

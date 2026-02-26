@@ -1,4 +1,4 @@
-# claude-code-notifier
+# claude-watch
 
 Claude Code のツール実行時に macOS メニューバーからパーミッション確認ポップアップと通知を表示する Electron アプリ。
 

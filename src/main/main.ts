@@ -1,6 +1,6 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, session } from 'electron';
 import { TrayManager } from './tray';
-import { NotifierServer } from './server';
+import { ClaudeWatchServer } from './server';
 import type { PopupData, NotificationPopupData } from '../shared/types';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -10,7 +10,7 @@ if (require('electron-squirrel-startup')) {
 
 let mainWindow: BrowserWindow | null = null;
 let trayManager: TrayManager;
-let server: NotifierServer;
+let server: ClaudeWatchServer;
 let notificationTimer: ReturnType<typeof setTimeout> | null = null;
 let rendererReady = false;
 
@@ -311,7 +311,7 @@ app.whenReady().then(async () => {
   mainWindow = createWindow();
 
   // Start HTTP server
-  server = new NotifierServer({
+  server = new ClaudeWatchServer({
     onPermissionRequest: showPermission,
     onNotification: showNotification,
   });

@@ -6,7 +6,7 @@
 #   ./scripts/test-popup.sh multi        # 3件同時送信
 #   ./scripts/test-popup.sh notify       # 通知送信
 
-SOCKET="$HOME/.claude-code-notifier/notifier.sock"
+SOCKET="$HOME/.claude-watch/watch.sock"
 
 send_permission() {
   local cmd="$1"
@@ -42,12 +42,12 @@ case "${1:-menu}" in
     ;;
   safe)
     echo "=== SAFE: ls -la ==="
-    send_permission "ls -la" "List files" "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_permission "ls -la" "List files" "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   low)
     echo "=== LOW: npm test ==="
-    send_permission "npm test" "Run tests" "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_permission "npm test" "Run tests" "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   medium)
@@ -76,7 +76,7 @@ case "${1:-menu}" in
     ;;
   multi)
     echo "=== 3件同時送信 ==="
-    send_permission "ls -la" "List files" "/Users/masashi.nishiwaki/work/claude-code-notifier" &
+    send_permission "ls -la" "List files" "/Users/masashi.nishiwaki/work/claude-watch" &
     send_permission "npm install" "Install deps" "/Users/masashi.nishiwaki/work/hacomono" &
     send_permission "rm -rf /tmp/test" "Delete temp" "/Users/masashi.nishiwaki/work/haconiwa" &
     wait
@@ -84,7 +84,7 @@ case "${1:-menu}" in
     ;;
   notify)
     echo "=== 通知: 完了 ==="
-    send_notification "タスクが完了しました" "完了" "stop" "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_notification "タスクが完了しました" "完了" "stop" "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   notify-info)
@@ -94,37 +94,37 @@ case "${1:-menu}" in
     ;;
   long)
     echo "=== LONG: 長いコマンド ==="
-    send_permission "find /usr/local/lib/node_modules -name '*.js' -exec grep -l 'require' {} \\; | xargs sed -i '' 's/require/import/g' && npm run build && npm run test -- --coverage --reporter=verbose --bail && echo 'done'" "Search all JS files in node_modules for require statements, replace them with import, then run build and tests with verbose coverage reporting" "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_permission "find /usr/local/lib/node_modules -name '*.js' -exec grep -l 'require' {} \\; | xargs sed -i '' 's/require/import/g' && npm run build && npm run test -- --coverage --reporter=verbose --bail && echo 'done'" "Search all JS files in node_modules for require statements, replace them with import, then run build and tests with verbose coverage reporting" "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   edit)
     echo "=== Edit: ファイル編集 ==="
-    send_tool_permission "Edit" '{"file_path":"/src/server.ts","old_string":"const x = 1;","new_string":"const x = 2;"}' "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_tool_permission "Edit" '{"file_path":"/src/server.ts","old_string":"const x = 1;","new_string":"const x = 2;"}' "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   write)
     echo "=== Write: ファイル書き込み ==="
-    send_tool_permission "Write" '{"file_path":"/src/new-file.ts","content":"export const hello = \"world\";\nconsole.log(hello);\n"}' "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_tool_permission "Write" '{"file_path":"/src/new-file.ts","content":"export const hello = \"world\";\nconsole.log(hello);\n"}' "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   webfetch)
     echo "=== WebFetch: URL アクセス ==="
-    send_tool_permission "WebFetch" '{"url":"https://example.com/api/data","prompt":"Get the data"}' "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_tool_permission "WebFetch" '{"url":"https://example.com/api/data","prompt":"Get the data"}' "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   task)
     echo "=== Task: サブエージェント ==="
-    send_tool_permission "Task" '{"prompt":"Search for all TypeScript files and analyze their structure","subagent_type":"Explore"}' "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_tool_permission "Task" '{"prompt":"Search for all TypeScript files and analyze their structure","subagent_type":"Explore"}' "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   notebook)
     echo "=== NotebookEdit: ノートブック編集 ==="
-    send_tool_permission "NotebookEdit" '{"notebook_path":"/notebooks/analysis.ipynb","new_source":"import pandas as pd"}' "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_tool_permission "NotebookEdit" '{"notebook_path":"/notebooks/analysis.ipynb","new_source":"import pandas as pd"}' "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   mcp)
     echo "=== MCP: MCP ツール ==="
-    send_tool_permission "mcp__github__create_issue" '{"title":"Bug report","body":"Something is broken"}' "/Users/masashi.nishiwaki/work/claude-code-notifier"
+    send_tool_permission "mcp__github__create_issue" '{"title":"Bug report","body":"Something is broken"}' "/Users/masashi.nishiwaki/work/claude-watch"
     echo
     ;;
   all-tools)
@@ -137,7 +137,7 @@ case "${1:-menu}" in
     done
     ;;
   menu|*)
-    echo "Claude Code Notifier テストスクリプト"
+    echo "Claude Watch テストスクリプト"
     echo ""
     echo "Usage: $0 <command>"
     echo ""

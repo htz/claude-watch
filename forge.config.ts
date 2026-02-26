@@ -7,9 +7,10 @@ import { rendererConfig } from './webpack.renderer.config';
 
 const config: ForgeConfig = {
   packagerConfig: {
+    name: 'Claude Watch',
     asar: true,
     icon: './assets/IconTemplate',
-    appBundleId: 'com.claude-code-notifier',
+    appBundleId: 'com.claude-watch',
     extendInfo: {
       LSUIElement: true,
     },

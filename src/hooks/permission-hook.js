@@ -4,7 +4,7 @@
 /**
  * Claude Code PreToolUse hook for all tool types.
  *
- * Reads tool invocation from stdin, sends to claude-code-notifier app via HTTP,
+ * Reads tool invocation from stdin, sends to claude-watch app via HTTP,
  * and outputs permission decision to stdout.
  * Read/Glob/Grep (safe tools) are skipped.
  * settings.json の permissions (allow/deny/ask) を尊重:
@@ -27,7 +27,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const SOCKET_PATH = path.join(os.homedir(), '.claude-code-notifier', 'notifier.sock');
+const SOCKET_PATH = path.join(os.homedir(), '.claude-watch', 'watch.sock');
 const TIMEOUT_MS = 300000; // 5 minutes
 const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -203,7 +203,7 @@ function matchesToolPattern(toolName, toolPatterns) {
 }
 
 /**
- * Check if the notifier app is running.
+ * Check if the claude-watch app is running.
  */
 function healthCheck() {
   return new Promise((resolve) => {
@@ -242,7 +242,7 @@ function healthCheck() {
 }
 
 /**
- * Send permission request to the notifier app.
+ * Send permission request to the claude-watch app.
  */
 function requestPermission(toolName, toolInput) {
   return new Promise((resolve, reject) => {

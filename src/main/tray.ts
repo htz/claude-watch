@@ -21,7 +21,7 @@ export class TrayManager {
     icon.setTemplateImage(true);
 
     this.tray = new Tray(icon);
-    this.tray.setToolTip('Claude Code Notifier');
+    this.tray.setToolTip('Claude Watch');
 
     this.rebuildContextMenu(options.launchAtLogin);
     return this.tray;
@@ -37,7 +37,7 @@ export class TrayManager {
     const { onQuit, onToggleLaunchAtLogin } = this.createOptions;
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Claude Code Notifier',
+        label: 'Claude Watch',
         enabled: false,
       },
       { type: 'separator' },

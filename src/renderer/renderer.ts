@@ -127,7 +127,7 @@ function showNotificationView(data: NotificationPopupData): void {
 
 function respond(decision: 'allow' | 'deny' | 'skip'): void {
   if (!currentRequestId) return;
-  window.notifierAPI.respond(currentRequestId, decision);
+  window.claudeWatchAPI.respond(currentRequestId, decision);
   currentRequestId = null;
 }
 
@@ -149,12 +149,12 @@ btnSkip.addEventListener('click', (e) => {
 
 btnDismiss.addEventListener('click', (e) => {
   e.stopPropagation();
-  window.notifierAPI.dismissNotification();
+  window.claudeWatchAPI.dismissNotification();
 });
 
 btnOk.addEventListener('click', (e) => {
   e.stopPropagation();
-  window.notifierAPI.dismissNotification();
+  window.claudeWatchAPI.dismissNotification();
 });
 
 // Keyboard shortcuts
@@ -170,15 +170,15 @@ document.addEventListener('keydown', (e) => {
   } else {
     // Notification view
     if (e.key === 'Escape' || (e.key === 'Enter' && e.metaKey)) {
-      window.notifierAPI.dismissNotification();
+      window.claudeWatchAPI.dismissNotification();
     }
   }
 });
 
 // Listen for IPC events from main process
-window.notifierAPI.onPermission(showPermissionView);
-window.notifierAPI.onNotification(showNotificationView);
-window.notifierAPI.onQueueUpdate((count: number) => {
+window.claudeWatchAPI.onPermission(showPermissionView);
+window.claudeWatchAPI.onNotification(showNotificationView);
+window.claudeWatchAPI.onQueueUpdate((count: number) => {
   if (count > 0) {
     notificationQueueBadge.textContent = `+${count} 件待機中`;
     notificationQueueBadge.classList.remove('hidden');

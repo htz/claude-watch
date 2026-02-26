@@ -1,4 +1,4 @@
-# claude-code-notifier
+# claude-watch
 
 macOS メニューバー常駐の Electron アプリ。Claude Code のフックシステムと連携し、ツール実行時のパーミッション確認ポップアップとタスク通知を提供する。
 
@@ -8,7 +8,7 @@ macOS メニューバー常駐の Electron アプリ。Claude Code のフック�
 - **言語**: TypeScript (strict), フックスクリプトのみ CommonJS (.js)
 - **ビルド**: Electron Forge + Webpack
 - **テスト**: Vitest
-- **IPC**: Unix ドメインソケット (`~/.claude-code-notifier/notifier.sock`)
+- **IPC**: Unix ドメインソケット (`~/.claude-watch/watch.sock`)
 
 ## ディレクトリ構成
 

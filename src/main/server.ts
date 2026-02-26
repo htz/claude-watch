@@ -20,7 +20,7 @@ export interface ServerCallbacks {
   onNotification: (data: NotificationPopupData) => void;
 }
 
-export class NotifierServer {
+export class ClaudeWatchServer {
   private server: http.Server | null = null;
   private queue: QueueItem[] = [];
   private callbacks: ServerCallbacks;
@@ -49,7 +49,7 @@ export class NotifierServer {
       this.server.listen(SOCKET_PATH, () => {
         // ソケットファイルを所有者のみアクセス可能に制限
         try { fs.chmodSync(SOCKET_PATH, 0o600); } catch {}
-        console.log(`Notifier server listening on ${SOCKET_PATH}`);
+        console.log(`Claude Watch server listening on ${SOCKET_PATH}`);
         resolve();
       });
     });

@@ -1,5 +1,6 @@
 {
-  "name": "claude-code-notifier",
+  "name": "claude-watch",
+  "productName": "Claude Watch",
   "version": "1.0.0",
   "description": "macOS menu bar app for Claude Code permission notifications",
   "main": ".webpack/main",
@@ -29,7 +30,7 @@
   },
   "keywords": [
     "claude-code",
-    "notifier",
+    "claude-watch",
     "electron",
     "menubar"
   ],

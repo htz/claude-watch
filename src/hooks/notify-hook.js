@@ -4,7 +4,7 @@
 /**
  * Claude Code Notification hook.
  *
- * Sends notifications to the claude-code-notifier app.
+ * Sends notifications to the claude-watch app.
  * Non-blocking: always exits quickly regardless of app state.
  */
 
@@ -12,7 +12,7 @@ const http = require('http');
 const path = require('path');
 const os = require('os');
 
-const SOCKET_PATH = path.join(os.homedir(), '.claude-code-notifier', 'notifier.sock');
+const SOCKET_PATH = path.join(os.homedir(), '.claude-watch', 'watch.sock');
 const TIMEOUT_MS = 5000;
 const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Setup script for claude-code-notifier.
+ * Setup script for claude-watch.
  *
  * Registers hook scripts in ~/.claude/settings.json.
  * Preserves existing hooks and settings.
@@ -92,7 +92,7 @@ interface HookConfig {
 
 function isOurHook(hookConfig: HookConfig): boolean {
   return hookConfig.hooks.some(
-    (h) => typeof h.command === 'string' && h.command.includes('claude-code-notifier')
+    (h) => typeof h.command === 'string' && h.command.includes('claude-watch')
   );
 }
 
@@ -142,7 +142,7 @@ function registerHook(
   if (!Array.isArray(hooks[def.key])) {
     hooks[def.key] = [];
   }
-  // Remove existing notifier entry first
+  // Remove existing claude-watch entry first
   hooks[def.key] = hooks[def.key].filter((h: HookConfig) => !isOurHook(h));
 
   const entry: HookConfig = {
@@ -297,7 +297,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const nodePath = getNodePath();
 
-  console.log('Claude Code Notifier — フックセットアップ');
+  console.log('Claude Watch — フックセットアップ');
   console.log('');
   console.log(`Node.js path: ${nodePath}`);
   console.log(`Settings file: ${SETTINGS_PATH}`);
@@ -327,7 +327,7 @@ async function main(): Promise<void> {
 
   console.log('');
   console.log('Next steps:');
-  console.log('  1. Start the notifier app: npm start');
+  console.log('  1. Start the app: npm start');
   console.log('  2. Use Claude Code as usual');
 }
 

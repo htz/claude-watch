@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { NotifierAPI, PopupData, NotificationPopupData } from '../shared/types';
+import type { ClaudeWatchAPI, PopupData, NotificationPopupData } from '../shared/types';
 
-const api: NotifierAPI = {
+const api: ClaudeWatchAPI = {
   onPermission: (callback: (data: PopupData) => void) => {
     ipcRenderer.removeAllListeners('permission-request');
     ipcRenderer.on('permission-request', (_event, data: PopupData) => {
@@ -32,4 +32,4 @@ const api: NotifierAPI = {
   },
 };
 
-contextBridge.exposeInMainWorld('notifierAPI', api);
+contextBridge.exposeInMainWorld('claudeWatchAPI', api);

@@ -7,10 +7,10 @@
  * Reads tool invocation from stdin, sends to claude-watch app via HTTP,
  * and outputs permission decision to stdout.
  * Read/Glob/Grep (safe tools) are skipped.
- * settings.json の permissions (allow/deny/ask) を尊重:
- *   - allow → ポップアップ不要、exit(0) で Claude 本体にフォールスルー
+ * settings.json の permissions (allow/deny/ask) を尊重 (deny → ask → allow の順で評価):
  *   - deny  → 即座に permissionDecision: 'deny' を出力
- *   - ask   → ポップアップ表示 (デフォルト動作)
+ *   - ask   → ポップアップ表示 (危険度は最低 HIGH に引き上げ)
+ *   - allow → ポップアップ不要、exit(0) で Claude 本体にフォールスルー
  * Bash / 非 Bash 両方でパターン照合に対応。
  *
  * 設定ファイルの読み込み優先順 (全てマージ):
@@ -1029,26 +1029,30 @@ async function main() {
     process.exit(0);
   }
 
-  // allow リスト → exit(0) で Claude 本体にフォールスルー (ポップアップ不要)
-  const isAllowed = toolName === 'Bash'
-    ? matchesCommandPattern(command, perms.allow.bashPatterns)
-    : matchesToolPattern(toolName, perms.allow.toolPatterns);
-
-  if (isAllowed) process.exit(0);
-
-  // ask リスト、またはどのリストにも含まれない → ポップアップ表示へ進む
-
-  // ask リストマッチ判定
+  // ask リストマッチ判定 (deny → ask → allow の順で評価)
   const isAskListed = toolName === 'Bash'
     ? matchesCommandPattern(command, perms.ask.bashPatterns, 'any')
     : matchesToolPattern(toolName, perms.ask.toolPatterns);
 
+  // ask にマッチしなかった場合のみ allow を評価
+  if (!isAskListed) {
+    // allow リスト → exit(0) で Claude 本体にフォールスルー (ポップアップ不要)
+    const isAllowed = toolName === 'Bash'
+      ? matchesCommandPattern(command, perms.allow.bashPatterns)
+      : matchesToolPattern(toolName, perms.allow.toolPatterns);
+
+    if (isAllowed) process.exit(0);
+  }
+
+  // ask リスト、またはどのリストにも含まれない → ポップアップ表示へ進む
+
   // 未許可コマンド情報を算出 (Bash のみ)
   // 全サブコマンドが allow にマッチしていればポップアップ不要で自動許可
+  // ただし ask にマッチしている場合は自動許可しない
   let unmatchedCommands = undefined;
   if (toolName === 'Bash' && command) {
     const { unmatched, hasUnresolvable } = extractUnmatchedCommands(command, perms.allow.bashPatterns);
-    if (unmatched.length === 0 && !hasUnresolvable) {
+    if (!isAskListed && unmatched.length === 0 && !hasUnresolvable) {
       process.exit(0);
     }
     unmatchedCommands = { commands: unmatched, hasUnresolvable };

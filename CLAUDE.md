@@ -50,10 +50,11 @@ npm run make        # DMG/ZIP 作成
   1. `~/.claude/settings.json` (グローバル) — allow/deny/ask 全て
   2. `<project>/.claude/settings.json` (プロジェクト、Git 管理) — deny/ask のみ (allow はセキュリティ上無視)
   3. `<project>/.claude/settings.local.json` (プロジェクトローカル、Git 非管理) — allow/deny/ask 全て
-- **判定フロー**:
+- **判定フロー** (deny → ask → allow の順、Claude 本体と同じ):
   - `deny` リストにマッチ → 即座に `permissionDecision: 'deny'` (ポップアップなし)
+  - `ask` リストにマッチ → ノーティファイアのポップアップを表示 (危険度は最低 HIGH に引き上げ)
   - `allow` リストにマッチ → `exit(0)` で Claude 本体にフォールスルー (ポップアップなし)
-  - `ask` リスト or 未登録 → ノーティファイアのポップアップを表示
+  - 未登録 → ノーティファイアのポップアップを表示
 - Bash コマンドは `Bash(git:*)` 形式、非 Bash ツールは `Edit` / `mcp__notion__*` 形式で照合
 
 ### サーバー (`src/main/server.ts`)

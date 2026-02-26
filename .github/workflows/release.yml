@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build (arm64)
+        run: npm run make -- --arch arm64 --platform darwin
+
+      - name: Prepare release asset
+        run: |
+          SRC="out/make/zip/darwin/arm64/Claude Watch-darwin-arm64-${VERSION}.zip"
+          DEST="claude-watch-darwin-arm64-${VERSION}.zip"
+          cp "$SRC" "$DEST"
+          SHA256=$(shasum -a 256 "$DEST" | awk '{print $1}')
+          echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+          echo "ASSET=$DEST" >> "$GITHUB_ENV"
+          echo "### Release Asset" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **File**: \`$DEST\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **SHA256**: \`$SHA256\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          body: |
+            ## SHA256
+            ```
+            ${{ env.SHA256 }}  ${{ env.ASSET }}
+            ```
+
+            ## インストール
+            ```bash
+            brew install --cask htz/claude-watch/claude-watch
+            ```
+          draft: false
+          prerelease: false
+
+      - name: Update Homebrew tap
+        if: env.TAP_GITHUB_TOKEN != ''
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          CASK_CONTENT=$(cat <<CASK_EOF
+          cask "claude-watch" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/htz/claude-watch/releases/download/v#{version}/claude-watch-darwin-arm64-#{version}.zip"
+            name "Claude Watch"
+            desc "macOS menu bar app for Claude Code permission notifications"
+            homepage "https://github.com/htz/claude-watch"
+
+            depends_on arch: :arm64
+            depends_on macos: ">= :ventura"
+
+            preflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-cr", "#{staged_path}/Claude Watch.app"]
+            end
+
+            app "Claude Watch.app"
+
+            zap trash: "~/.claude-watch"
+          end
+          CASK_EOF
+          )
+
+          ENCODED=$(echo "$CASK_CONTENT" | base64)
+
+          # 既存ファイルの SHA を取得（更新時に必要）
+          EXISTING_SHA=$(curl -sf \
+            -H "Authorization: token $TAP_GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/htz/homebrew-claude-watch/contents/Casks/claude-watch.rb" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
+
+          PAYLOAD=$(python3 -c "
+          import json, sys
+          data = {
+              'message': 'Update claude-watch to ${VERSION}',
+              'content': '${ENCODED}',
+          }
+          sha = '${EXISTING_SHA}'
+          if sha:
+              data['sha'] = sha
+          print(json.dumps(data))
+          ")
+
+          curl -sf \
+            -X PUT \
+            -H "Authorization: token $TAP_GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/htz/homebrew-claude-watch/contents/Casks/claude-watch.rb" \
+            -d "$PAYLOAD"

@@ -21,7 +21,80 @@ Claude Code のツール実行時に macOS メニューバーからパーミッ�
 - Node.js 18+
 - Claude Code (hooks 機能)
 
-## セットアップ
+## インストール
+
+### Homebrew (推奨)
+
+```bash
+brew install --cask htz/claude-watch/claude-watch
+```
+
+### 手動インストール
+
+1. [GitHub Releases](https://github.com/htz/claude-watch/releases) から最新の ZIP をダウンロード
+2. 展開して Gatekeeper 属性を除去し、Applications に配置:
+
+```bash
+xattr -cr "Claude Watch.app"
+mv "Claude Watch.app" /Applications/
+```
+
+### フック登録
+
+インストール後、Claude Code のフックを `~/.claude/settings.json` に登録します。
+
+以下を `~/.claude/settings.json` の `hooks` に追加してください:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|Edit|Write|WebFetch|NotebookEdit|Task|mcp__.+)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Applications/Claude Watch.app/Contents/Resources/hooks/permission-hook.js\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Applications/Claude Watch.app/Contents/Resources/hooks/notify-hook.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Applications/Claude Watch.app/Contents/Resources/hooks/stop-hook.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+登録後、Claude Watch を起動してください:
+
+```bash
+open -a "Claude Watch"
+```
+
+## 開発向けセットアップ
+
+ソースコードから開発する場合:
 
 ```bash
 # 依存パッケージのインストール

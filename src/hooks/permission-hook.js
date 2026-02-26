@@ -462,8 +462,33 @@ function extractDollarParenFromString(str) {
 }
 
 /**
+ * トークンが変数代入 (VAR=value) かどうか判定する。
+ * shell-quote はクォートを除去済みなので、文字列トークンの先頭が \w+= であれば代入。
+ */
+function isAssignmentToken(token) {
+  return typeof token === 'string' && /^\w+=/.test(token);
+}
+
+/**
+ * current トークン配列から先頭の変数代入トークンを除去し、コマンド文字列を返す。
+ * 全てが代入の場合は null を返す（純粋な変数代入行）。
+ *
+ * 例: ['FOO=bar', 'npm', 'test'] → 'npm test'
+ *     ['MARKER=/tmp/foo']        → null
+ */
+function buildCommandFromTokens(currentTokens) {
+  let start = 0;
+  while (start < currentTokens.length && /^\w+=/.test(currentTokens[start])) {
+    start++;
+  }
+  if (start >= currentTokens.length) return null; // 純粋な変数代入
+  return currentTokens.slice(start).join(' ');
+}
+
+/**
  * shell-quote トークン配列から全サブコマンドを再帰的に抽出する (内部用)。
  * - 演算子 (&&, ||, ;, |, &) で分割
+ * - 先頭の変数代入トークン (VAR=value) を除去してコマンドのみ抽出
  * - 非クォート $() のトークン列から内部コマンドを再帰的に抽出
  * - 文字列トークン内の $() (ダブルクォート内) も抽出
  * - バッククォートは解決不能 (hasUnresolvable)
@@ -473,6 +498,20 @@ function extractFromTokens(tokens) {
   let current = [];
   let i = 0;
   let hasNonCommentTokens = false;
+  // shell-quote がネスト $() を誤パースした場合の代入値残骸をスキップするフラグ。
+  // VAR="...-$(... "$(inner)"... )" のように、shell-quote がダブルクォート境界を
+  // 誤認識し、代入値の一部を別トークンとして分離してしまうケースに対応。
+  let inAssignmentValue = false;
+
+  /** current を1コマンドとして確定し、代入トークンを除去して result に追加 */
+  function flushCurrent() {
+    if (current.length === 0) return;
+    const cmd = buildCommandFromTokens(current);
+    if (cmd && cmd.trim()) {
+      result.commands.push(cmd);
+    }
+    current = [];
+  }
 
   while (i < tokens.length) {
     const token = tokens[i];
@@ -485,27 +524,70 @@ function extractFromTokens(tokens) {
 
     hasNonCommentTokens = true;
 
-    // コマンド区切り演算子 → ここまでを1コマンドとして確定
+    // コマンド区切り演算子 → ここまでを1コマンドとして確定、代入コンテキスト終了
     if (typeof token === 'object' && token !== null && token.op && COMMAND_SEPARATORS.has(token.op)) {
-      if (current.length > 0) {
-        result.commands.push(current.join(' '));
-        current = [];
+      inAssignmentValue = false;
+      flushCurrent();
+      i++;
+      continue;
+    }
+
+    // 代入値の残骸スキップ: shell-quote の誤パースで分離されたトークン
+    if (inAssignmentValue) {
+      // トークン内の $() からはコマンドを抽出（ベストエフォート）
+      if (typeof token === 'string') {
+        if (token.includes('`')) result.hasUnresolvable = true;
+        if (/\$\(/.test(token)) {
+          const extracted = extractDollarParenFromString(token);
+          for (const cmd of extracted) {
+            const nested = extractAllSubCommands(cmd);
+            result.commands.push(...nested.commands);
+            if (nested.hasUnresolvable) result.hasUnresolvable = true;
+          }
+        }
       }
       i++;
       continue;
     }
 
-    // 非クォート $(): "$" or "prefix$" トークン + {op: "("} → 内部コマンドを再帰抽出
+    // 非クォート $() / $((): "$" or "prefix$" トークン + {op: "("} で開始
     // VAR=$() 形式では "VAR=$" トークンになるため endsWith('$') で検出
     if (typeof token === 'string' && token.endsWith('$') &&
         i + 1 < tokens.length &&
         typeof tokens[i + 1] === 'object' && tokens[i + 1] !== null && tokens[i + 1].op === '(') {
-      // $ より前のプレフィックスがあればコマンドの一部として保持
+      const isAssignment = isAssignmentToken(token);
+
+      // $ より前のプレフィックスを判定 ($() と $(( で共通)
       if (token !== '$') {
         const prefix = token.slice(0, -1);
-        if (prefix) current.push(prefix);
+        // 変数代入プレフィックス (MARKER=, FOO=bar-) はコマンドではないため除外
+        // コマンドプレフィックス (echo 等) は保持
+        if (prefix && !isAssignment) {
+          current.push(prefix);
+        }
       }
 
+      // $(( 算術展開の検出: $( の直後にさらに ( があれば $(( でありコマンド置換ではない
+      // 例: echo $((1+2)), VAR=$((x*3))
+      if (i + 2 < tokens.length &&
+          typeof tokens[i + 2] === 'object' && tokens[i + 2] !== null && tokens[i + 2].op === '(') {
+        // 算術展開はコマンドを含まない — )) まで読み飛ばし
+        let depth = 1;
+        let j = i + 2;
+        while (j < tokens.length && depth > 0) {
+          const t = tokens[j];
+          if (typeof t === 'object' && t !== null && t.op === '(') depth++;
+          else if (typeof t === 'object' && t !== null && t.op === ')') {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        i = j + 1;
+        continue;
+      }
+
+      // 通常の $() コマンド置換 — 内部コマンドを再帰抽出
       let depth = 1;
       let j = i + 2;
       const innerTokens = [];
@@ -524,6 +606,14 @@ function extractFromTokens(tokens) {
         const nested = extractFromTokens(innerTokens);
         result.commands.push(...nested.commands);
         if (nested.hasUnresolvable) result.hasUnresolvable = true;
+      }
+
+      // shell-quote が代入トークン内の $() をネスト誤パースしている場合、
+      // 閉じ括弧後の残骸トークンをスキップする。
+      // 判定: 代入トークンの値部分に literal $( が含まれている
+      // (例: "MARKER=prefix-$(echo -n $" の "prefix-$(echo -n " 部分)
+      if (isAssignment && /\$\(/.test(token.slice(0, -1))) {
+        inAssignmentValue = true;
       }
 
       i = j + 1;
@@ -557,8 +647,15 @@ function extractFromTokens(tokens) {
       continue;
     }
 
-    // その他の演算子 (リダイレクト等)
+    // その他の演算子
     if (typeof token === 'object' && token !== null && token.op) {
+      // サブシェル括弧 ( ) はコマンドではなくグルーピング — 透過的にスキップ
+      // 例: (echo hello) → echo hello, node -e console.log(1) → node -e console.log 1
+      if (token.op === '(' || token.op === ')') {
+        i++;
+        continue;
+      }
+      // リダイレクト (>, <, >> 等) はコマンドの一部として保持
       current.push(token.op);
       i++;
       continue;
@@ -567,9 +664,7 @@ function extractFromTokens(tokens) {
     i++;
   }
 
-  if (current.length > 0) {
-    result.commands.push(current.join(' '));
-  }
+  flushCurrent();
 
   // コメントのみ → 空
   if (!hasNonCommentTokens) {
@@ -993,4 +1088,4 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString, extractUnmatchedCommands, updateShellState };
+module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString, extractUnmatchedCommands, updateShellState, isAssignmentToken, buildCommandFromTokens };

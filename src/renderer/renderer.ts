@@ -89,6 +89,10 @@ function showPermissionView(data: PopupData): void {
   notificationView.classList.add('hidden');
   permissionView.classList.remove('hidden');
 
+  // スクロール位置をリセット（前回のポップアップのオフセットが残るのを防止）
+  const scrollArea = permissionView.querySelector('.content-scroll');
+  if (scrollArea) scrollArea.scrollTop = 0;
+
   // Danger badge
   dangerBadge.textContent = data.dangerInfo.label;
   dangerBadge.style.backgroundColor = data.dangerInfo.badgeColor;
@@ -136,6 +140,10 @@ function showNotificationView(data: NotificationPopupData): void {
   // Hide permission, show notification
   permissionView.classList.add('hidden');
   notificationView.classList.remove('hidden');
+
+  // スクロール位置をリセット
+  const scrollArea = notificationView.querySelector('.content-scroll');
+  if (scrollArea) scrollArea.scrollTop = 0;
 
   const config = TYPE_CONFIG[data.type] || TYPE_CONFIG.info;
 

@@ -22,6 +22,8 @@ const {
   extractDollarParenFromString,
   extractUnmatchedCommands,
   updateShellState,
+  isAssignmentToken,
+  buildCommandFromTokens,
 } = require('../src/hooks/permission-hook');
 
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
@@ -1013,6 +1015,179 @@ describe('extractAllSubCommands', () => {
     expect(result.commands).toEqual(['echo $HOME']);
     expect(result.hasUnresolvable).toBe(false);
   });
+
+  // --- 変数代入の処理 ---
+
+  it('should skip pure variable assignment', () => {
+    const result = extractAllSubCommands('MARKER="/tmp/foo"');
+    expect(result.commands).toEqual([]);
+  });
+
+  it('should extract only inner command from VAR=$(cmd)', () => {
+    const result = extractAllSubCommands('MARKER=$(echo hi)');
+    expect(result.commands).toEqual(['echo hi']);
+    // MARKER= がコマンドに含まれてはいけない
+    expect(result.commands.some(c => c.includes('MARKER'))).toBe(false);
+  });
+
+  it('should strip leading env var prefix (FOO=bar cmd)', () => {
+    const result = extractAllSubCommands('FOO=bar npm test');
+    expect(result.commands).toEqual(['npm test']);
+  });
+
+  it('should strip multiple leading env var prefixes', () => {
+    const result = extractAllSubCommands('NODE_ENV=test FOO=bar npm test');
+    expect(result.commands).toEqual(['npm test']);
+  });
+
+  it('should handle VAR=$(cmd) followed by && commands', () => {
+    const result = extractAllSubCommands('MARKER=$(echo hi) && touch $MARKER');
+    expect(result.commands).toContain('echo hi');
+    expect(result.commands).toContain('touch $MARKER');
+    expect(result.commands.some(c => c === 'MARKER=' || c.startsWith('MARKER='))).toBe(false);
+  });
+
+  it('should handle complex assignment with nested $() (shell-quote misparse)', () => {
+    // shell-quote はネスト $() を正しくパースできないが、代入値残骸がコマンドに漏れてはいけない
+    const cmd = 'MARKER="/tmp/.claude-commit-allowed-$(echo -n "$(git rev-parse --show-toplevel)" | shasum | cut -c1-12)"';
+    const result = extractAllSubCommands(cmd);
+    // 内部コマンドは抽出される
+    expect(result.commands).toContain('git rev-parse --show-toplevel');
+    // 代入値の残骸がコマンドとして現れてはいけない
+    expect(result.commands.some(c => c.includes('MARKER='))).toBe(false);
+    expect(result.commands.some(c => c.includes('shasum'))).toBe(false);
+  });
+
+  it('should handle A=1 B=$(cmd) real_cmd correctly', () => {
+    const result = extractAllSubCommands('A=1 B=$(echo hi) real_cmd');
+    expect(result.commands).toContain('echo hi');
+    expect(result.commands).toContain('real_cmd');
+    expect(result.commands.some(c => c.includes('A=') || c.includes('B='))).toBe(false);
+  });
+
+  it('should keep export as a command', () => {
+    const result = extractAllSubCommands('export FOO=bar');
+    expect(result.commands).toEqual(['export FOO=bar']);
+  });
+
+  // --- $(( 算術展開 ---
+
+  it('should not treat $(( )) arithmetic as command substitution', () => {
+    const result = extractAllSubCommands('echo $((1+2))');
+    expect(result.commands).toEqual(['echo']);
+    // ( がコマンドとして現れてはいけない
+    expect(result.commands.some(c => c.includes('('))).toBe(false);
+  });
+
+  it('should handle $(( )) with operators around it', () => {
+    const result = extractAllSubCommands('echo $((x * 2)) && echo done');
+    expect(result.commands).toEqual(['echo', 'echo done']);
+  });
+
+  it('should handle $(( )) in assignment', () => {
+    const result = extractAllSubCommands('VAR=$((1+2))');
+    expect(result.commands).toEqual([]);
+  });
+
+  it('should handle $(( )) in pipe', () => {
+    const result = extractAllSubCommands('echo $((1+2)) | head');
+    expect(result.commands).toEqual(['echo', 'head']);
+  });
+
+  it('should still extract $() after $(( )) is skipped', () => {
+    const result = extractAllSubCommands('echo $((1+2)) && echo $(date)');
+    expect(result.commands).toContain('date');
+    expect(result.commands).toContain('echo');
+    expect(result.commands.some(c => c.includes('('))).toBe(false);
+  });
+
+  // --- 括弧 () の透過処理 ---
+  // shell-quote は引用符外の ( ) を {op:'('} / {op:')'} としてトークナイズする。
+  // サブシェル (cmd) やクォートなし node -e console.log(1) で発生。
+  // これらはコマンドとして扱わず透過的にスキップする。
+
+  it('should extract command from subshell (cmd)', () => {
+    const result = extractAllSubCommands('(echo hello)');
+    expect(result.commands).toContain('echo hello');
+    expect(result.commands.some(c => c === '(' || c === ')')).toBe(false);
+  });
+
+  it('should extract all commands from subshell with operators', () => {
+    const result = extractAllSubCommands('(cd /tmp && ls) || echo fail');
+    expect(result.commands).toContain('cd /tmp');
+    expect(result.commands).toContain('ls');
+    expect(result.commands).toContain('echo fail');
+    expect(result.commands.some(c => c.includes('('))).toBe(false);
+    expect(result.commands.some(c => c.includes(')'))).toBe(false);
+  });
+
+  it('should handle nested subshells', () => {
+    const result = extractAllSubCommands('( (echo inner) && echo outer )');
+    expect(result.commands).toContain('echo inner');
+    expect(result.commands).toContain('echo outer');
+    expect(result.commands.some(c => c === '(' || c === ')')).toBe(false);
+  });
+
+  it('should preserve redirect > in commands (not confuse with parens)', () => {
+    const result = extractAllSubCommands('echo hello > /tmp/out');
+    expect(result.commands).toContain('echo hello > /tmp/out');
+  });
+
+  // --- node -e / クォート境界の検証 ---
+  // shell-quote は "..." 内の \" (エスケープされたダブルクォート) を正しく処理し、
+  // クォート境界を誤認しない。以下のテストでこれを確認する。
+
+  it('should treat properly quoted node -e as single command', () => {
+    // \" は shell-quote で正しくクォート内として処理される
+    const result = extractAllSubCommands('node -e "console.log(\\"hello\\")"');
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]).toMatch(/^node/);
+    expect(result.commands.some(c => c === '(' || c === ')')).toBe(false);
+  });
+
+  it('should handle node -e with escaped quotes and parens', () => {
+    const result = extractAllSubCommands('node -e "f(\\"x\\"); g(\\"y\\")"');
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]).toMatch(/^node/);
+  });
+
+  it('should handle node -e with method chaining and escaped quotes', () => {
+    const result = extractAllSubCommands(
+      'node -e "require(\\"fs\\").readdirSync(\\".\\").filter(f => f.endsWith(\\".ts\\")).forEach(f => console.log(f))"'
+    );
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]).toMatch(/^node/);
+  });
+
+  it('should handle node -e with comparison operators inside quotes', () => {
+    // > inside "..." should NOT be treated as redirect
+    const result = extractAllSubCommands('node -e "[1,2,3].filter(x => x > 1)"');
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]).toMatch(/^node/);
+  });
+
+  it('should handle node -e with shell operators inside quotes', () => {
+    // &&, ||, ; inside "..." should NOT split into separate commands
+    const result = extractAllSubCommands('node -e "if (true && false) console.log(1)"');
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]).toMatch(/^node/);
+  });
+
+  it('should not produce ( from unquoted node -e', () => {
+    // node -e console.log(1) (without quotes) → shell-quote produces {op:'('}
+    // but extractFromTokens should skip ( ) operators
+    const result = extractAllSubCommands('node -e console.log(1)');
+    expect(result.commands.some(c => c === '(')).toBe(false);
+    expect(result.commands.some(c => c === ')')).toBe(false);
+  });
+
+  it('should not produce ( from unescaped inner quotes with nested parens', () => {
+    // node -e "a("b(c)")" → shell-quote misparsees inner quotes,
+    // ( from b(c) leaks outside quoted section
+    const result = extractAllSubCommands('node -e "a(\\"b(c)\\").d(\\"e(f)\\")"');
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]).toMatch(/^node/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1099,5 +1274,141 @@ describe('extractUnmatchedCommands', () => {
     // rm だけが未許可、) が独立コマンドになってはいけない
     expect(result.unmatched.some(c => c === ')')).toBe(false);
     expect(result.unmatched.some(c => c.startsWith('rm'))).toBe(true);
+  });
+
+  it('should not show assignment as unmatched', () => {
+    const cmd = 'MARKER="/tmp/foo" && touch $MARKER && rm -f $MARKER';
+    const result = extractUnmatchedCommands(cmd, ['touch:*']);
+    // MARKER= が未許可コマンドとして表示されてはいけない
+    expect(result.unmatched.some(c => c.includes('MARKER='))).toBe(false);
+    expect(result.unmatched).toEqual(['rm -f $MARKER']);
+  });
+
+  it('should handle VAR=$(cmd) in unmatched — only inner and following commands matter', () => {
+    const cmd = 'RESULT=$(curl http://example.com) && echo $RESULT';
+    const result = extractUnmatchedCommands(cmd, ['echo:*']);
+    expect(result.unmatched).toEqual(['curl http://example.com']);
+    expect(result.unmatched.some(c => c.includes('RESULT='))).toBe(false);
+  });
+
+  it('should not treat multi-line quoted string contents as commands (node -e)', () => {
+    // node -e "...\nconst a = 123\n..." — const は JS コードであり、コマンドではない
+    const cmd = `node -e "\nconst a = 123\n"`;
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual([]);
+    expect(result.unmatched.some(c => c.includes('const'))).toBe(false);
+  });
+
+  it('should not treat multi-line quoted JS with destructuring as commands', () => {
+    const cmd = `node -e "\nconst { foo } = require('bar');\nconsole.log(foo);\n"`;
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  // --- node -e クォート境界: \" がクォート終端として誤認されないことを確認 ---
+
+  it('should not produce unmatched from node -e with escaped quotes', () => {
+    const cmd = 'node -e "console.log(\\"hello\\")"';
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it('should not produce unmatched from node -e with escaped quotes + parens', () => {
+    const cmd = 'node -e "f(\\"x\\"); g(\\"y\\")"';
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it('should not produce unmatched from node -e with method chain', () => {
+    const cmd = 'node -e "require(\\"fs\\").readFileSync(\\"package.json\\", \\"utf8\\")"';
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it('should not produce unmatched from node -e piped to other command', () => {
+    const cmd = 'node -e "console.log(\\"hello\\")" | head -1';
+    const result = extractUnmatchedCommands(cmd, ['node:*', 'head:*']);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it('should not produce unmatched from node -e chained with &&', () => {
+    const cmd = 'node -e "console.log(\\"step1\\")" && echo step2';
+    const result = extractUnmatchedCommands(cmd, ['node:*', 'echo:*']);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it('should produce correct unmatched when node -e is allowed but chained cmd is not', () => {
+    const cmd = 'node -e "console.log(\\"step1\\")" && curl http://example.com';
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual(['curl http://example.com']);
+  });
+
+  it('should handle unquoted node -e without producing ( as unmatched', () => {
+    // node -e console.log(1) — クォートなし: shell-quote は ( を {op:'('} にする
+    const cmd = 'node -e console.log(1)';
+    const result = extractUnmatchedCommands(cmd, ['node:*']);
+    expect(result.unmatched).toEqual([]);
+    expect(result.unmatched.some(c => c === '(' || c === ')')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isAssignmentToken
+// ---------------------------------------------------------------------------
+describe('isAssignmentToken', () => {
+  it('should detect simple assignment', () => {
+    expect(isAssignmentToken('FOO=bar')).toBe(true);
+  });
+
+  it('should detect assignment with path value', () => {
+    expect(isAssignmentToken('MARKER=/tmp/foo')).toBe(true);
+  });
+
+  it('should detect assignment with empty value', () => {
+    expect(isAssignmentToken('VAR=')).toBe(true);
+  });
+
+  it('should not detect plain command', () => {
+    expect(isAssignmentToken('echo')).toBe(false);
+  });
+
+  it('should not detect flag with equals', () => {
+    // --key=value は代入ではない (\w+ は - を含まない)
+    expect(isAssignmentToken('--key=value')).toBe(false);
+  });
+
+  it('should not detect non-string', () => {
+    expect(isAssignmentToken(42)).toBe(false);
+    expect(isAssignmentToken({ op: '&&' })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCommandFromTokens
+// ---------------------------------------------------------------------------
+describe('buildCommandFromTokens', () => {
+  it('should strip single leading assignment', () => {
+    expect(buildCommandFromTokens(['FOO=bar', 'npm', 'test'])).toBe('npm test');
+  });
+
+  it('should strip multiple leading assignments', () => {
+    expect(buildCommandFromTokens(['A=1', 'B=2', 'cmd', 'arg'])).toBe('cmd arg');
+  });
+
+  it('should return null for pure assignment', () => {
+    expect(buildCommandFromTokens(['MARKER=/tmp/foo'])).toBeNull();
+  });
+
+  it('should return null for multiple pure assignments', () => {
+    expect(buildCommandFromTokens(['A=1', 'B=2'])).toBeNull();
+  });
+
+  it('should not strip non-leading assignment-like tokens', () => {
+    // cmd key=value の key=value はコマンド引数
+    expect(buildCommandFromTokens(['cmd', 'key=value'])).toBe('cmd key=value');
+  });
+
+  it('should handle empty array', () => {
+    expect(buildCommandFromTokens([])).toBeNull();
   });
 });

@@ -9,10 +9,11 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'Claude Watch',
     asar: true,
-    icon: './assets/IconTemplate',
+    icon: './assets/icon',
     appBundleId: 'com.claude-watch',
     extendInfo: {
       LSUIElement: true,
+      CFBundleIconFile: 'icon.icns',
     },
     extraResource: ['./src/hooks', './assets', './node_modules/shell-quote'],
   },

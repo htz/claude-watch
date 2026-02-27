@@ -294,18 +294,13 @@ app.whenReady().then(async () => {
     onToggleLaunchAtLogin: (enabled: boolean) => {
       app.setLoginItemSettings({ openAtLogin: enabled });
     },
-    launchAtLogin,
-  });
-
-  // Tray click: re-show queued permission popup if any
-  const tray = trayManager.getTray();
-  if (tray) {
-    tray.on('click', () => {
+    onClick: () => {
       if (server?.getQueueLength() > 0) {
         server.reshowCurrentItem();
       }
-    });
-  }
+    },
+    launchAtLogin,
+  });
 
   // Create window
   mainWindow = createWindow();

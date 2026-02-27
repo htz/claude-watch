@@ -69,11 +69,19 @@ npm run make        # DMG/ZIP 作成
 
 ### パーミッションフックの権限チェック (`permission-hook.js`)
 - `settings.json` の `permissions` (allow/deny/ask) を尊重し、Claude 本体と同じ判断を行う
-- **設定ファイルの読み込み** (全てマージ):
-  1. `~/.claude/settings.json` (グローバル) — allow/deny/ask 全て
-  2. `<project>/.claude/settings.json` (プロジェクト、Git 管理) — deny/ask のみ (allow はセキュリティ上無視)
-  3. `<project>/.claude/settings.local.json` (プロジェクトローカル、Git 非管理) — allow/deny/ask 全て
+- **設定ファイルの読み込み** (全てマージ、Claude Code 本家と同じ):
+  1. `~/.claude/settings.json` (グローバル) — allow/deny/ask/bypassPermissions 全て
+  2. `<project>/.claude/settings.json` (プロジェクト、Git 管理) — allow/deny/ask 全て
+  3. `<project>/.claude/settings.local.json` (プロジェクトローカル、Git 非管理) — allow/deny/ask/bypassPermissions 全て
+- **bypassPermissions の判定** (以下のいずれかで有効):
+  - stdin の `permission_mode === "bypassPermissions"` (CLI `--dangerously-skip-permissions` 対応)
+  - `permissions.defaultMode: "bypassPermissions"` (Claude Code 本家準拠)
+  - トップレベル `bypassPermissions: true` (後方互換)
+  - settings ファイルからはグローバル設定・プロジェクトローカル設定のみ有効 (Git 管理のプロジェクト設定からは無視)
+  - 有効時は全てのポップアップをスキップし `exit(0)` で Claude 本体にフォールスルー
 - **判定フロー** (deny → ask → allow の順、Claude 本体と同じ):
+  - stdin `permission_mode === "bypassPermissions"` → `exit(0)` (CLI フラグ由来)
+  - settings ファイルの `bypassPermissions` 有効 → `exit(0)` で Claude 本体にフォールスルー (全スキップ)
   - `deny` リストにマッチ → 即座に `permissionDecision: 'deny'` (ポップアップなし)
   - `ask` リストにマッチ → ノーティファイアのポップアップを表示 (危険度は最低 HIGH に引き上げ)
   - `allow` リストにマッチ → `exit(0)` で Claude 本体にフォールスルー (ポップアップなし)

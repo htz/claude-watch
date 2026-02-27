@@ -125,14 +125,13 @@ function mergePermissionLists(a, b) {
 }
 
 /**
- * Read and parse permissions from a single settings file.
- * Returns null if the file does not exist or cannot be parsed.
+ * Read and parse a single settings file.
+ * Returns the full settings object, or null if the file does not exist or cannot be parsed.
  */
 function readSettingsFile(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const settings = JSON.parse(content);
-    return settings.permissions || null;
+    return JSON.parse(content);
   } catch {
     return null;
   }
@@ -155,6 +154,17 @@ function findProjectRoot(cwd) {
 }
 
 /**
+ * 設定オブジェクトから bypassPermissions が有効かを判定する。
+ * - permissions.defaultMode === 'bypassPermissions' (Claude Code 本家準拠)
+ * - トップレベル bypassPermissions === true (後方互換)
+ */
+function isBypassPermissions(settings) {
+  if (settings.bypassPermissions === true) return true;
+  if (settings.permissions && settings.permissions.defaultMode === 'bypassPermissions') return true;
+  return false;
+}
+
+/**
  * Load permission settings from all settings files (global + project).
  * Merges allow/deny/ask lists from:
  *   1. ~/.claude/settings.json          (グローバル)
@@ -163,6 +173,10 @@ function findProjectRoot(cwd) {
  *
  * セキュリティ: プロジェクト設定からは deny/ask のみマージ可能。
  * allow はグローバル設定 (~/.claude/settings.json) のみ適用される。
+ *
+ * bypassPermissions: 以下のいずれかで有効化される:
+ *   - permissions.defaultMode === 'bypassPermissions' (Claude Code 本家準拠)
+ *   - トップレベル bypassPermissions === true (後方互換)
  */
 function loadPermissionSettings(cwd) {
   const empty = { bashPatterns: [], toolPatterns: [] };
@@ -170,15 +184,22 @@ function loadPermissionSettings(cwd) {
     allow: { ...empty },
     deny: { ...empty },
     ask: { ...empty },
+    bypassPermissions: false,
   };
 
-  // グローバル設定: allow/deny/ask 全てマージ
+  // グローバル設定: allow/deny/ask 全てマージ + bypassPermissions
   const globalPath = path.join(os.homedir(), '.claude', 'settings.json');
-  const globalPerms = readSettingsFile(globalPath);
-  if (globalPerms) {
-    for (const key of ['allow', 'deny', 'ask']) {
-      if (globalPerms[key]) {
-        result[key] = mergePermissionLists(result[key], parsePermissionList(globalPerms[key]));
+  const globalSettings = readSettingsFile(globalPath);
+  if (globalSettings) {
+    if (isBypassPermissions(globalSettings)) {
+      result.bypassPermissions = true;
+    }
+    const globalPerms = globalSettings.permissions;
+    if (globalPerms) {
+      for (const key of ['allow', 'deny', 'ask']) {
+        if (globalPerms[key]) {
+          result[key] = mergePermissionLists(result[key], parsePermissionList(globalPerms[key]));
+        }
       }
     }
   }
@@ -186,25 +207,35 @@ function loadPermissionSettings(cwd) {
   // プロジェクト設定のマージ
   const projectRoot = findProjectRoot(cwd || process.cwd());
   if (projectRoot) {
-    // settings.json (Git 管理): deny/ask のみ（悪意あるリポジトリ対策で allow は無視）
+    // settings.json (Git 管理): allow/deny/ask 全てマージ (Claude Code 本家と同じ)
+    // deny → ask → allow の評価順序でセキュリティを担保
     const projectSettingsPath = path.join(projectRoot, '.claude', 'settings.json');
-    const projectPerms = readSettingsFile(projectSettingsPath);
-    if (projectPerms) {
-      for (const key of ['deny', 'ask']) {
-        if (projectPerms[key]) {
-          result[key] = mergePermissionLists(result[key], parsePermissionList(projectPerms[key]));
+    const projectSettings = readSettingsFile(projectSettingsPath);
+    if (projectSettings) {
+      const projectPerms = projectSettings.permissions;
+      if (projectPerms) {
+        for (const key of ['allow', 'deny', 'ask']) {
+          if (projectPerms[key]) {
+            result[key] = mergePermissionLists(result[key], parsePermissionList(projectPerms[key]));
+          }
         }
       }
     }
 
-    // settings.local.json (ローカル専用、Git 非管理): allow/deny/ask 全てマージ
+    // settings.local.json (ローカル専用、Git 非管理): allow/deny/ask 全てマージ + bypassPermissions
     // ユーザーが手動または Claude Code の「このプロジェクトで常に許可」で作成するファイル
     const localSettingsPath = path.join(projectRoot, '.claude', 'settings.local.json');
-    const localPerms = readSettingsFile(localSettingsPath);
-    if (localPerms) {
-      for (const key of ['allow', 'deny', 'ask']) {
-        if (localPerms[key]) {
-          result[key] = mergePermissionLists(result[key], parsePermissionList(localPerms[key]));
+    const localSettings = readSettingsFile(localSettingsPath);
+    if (localSettings) {
+      if (isBypassPermissions(localSettings)) {
+        result.bypassPermissions = true;
+      }
+      const localPerms = localSettings.permissions;
+      if (localPerms) {
+        for (const key of ['allow', 'deny', 'ask']) {
+          if (localPerms[key]) {
+            result[key] = mergePermissionLists(result[key], parsePermissionList(localPerms[key]));
+          }
         }
       }
     }
@@ -559,6 +590,9 @@ async function main() {
   const toolName = data.tool_name;
   const toolInput = data.tool_input || {};
 
+  // stdin の permission_mode で bypass 判定 (CLI --dangerously-skip-permissions 対応)
+  if (data.permission_mode === 'bypassPermissions') process.exit(0);
+
   // 読み取り専用ツールはポップアップ不要
   const SAFE_TOOLS = ['Read', 'Glob', 'Grep'];
   if (SAFE_TOOLS.includes(toolName)) {
@@ -567,6 +601,10 @@ async function main() {
 
   // settings.json の permissions (allow/deny/ask) を読み込み
   const perms = loadPermissionSettings();
+
+  // settings ファイルの bypassPermissions が有効な場合も全てスキップ
+  if (perms.bypassPermissions) process.exit(0);
+
   const command = toolName === 'Bash' ? (toolInput.command || '').trim() : '';
 
   // Bash: 空コマンドはスキップ
@@ -667,6 +705,7 @@ module.exports = {
   parsePermissionList,
   mergePermissionLists,
   findProjectRoot,
+  isBypassPermissions,
   loadPermissionSettings,
   matchesCommandPattern,
   matchesSingleCommand,

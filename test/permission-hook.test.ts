@@ -8,6 +8,7 @@ const {
   parsePermissionList,
   mergePermissionLists,
   findProjectRoot,
+  isBypassPermissions,
   loadPermissionSettings,
   matchesCommandPattern,
   matchesSingleCommand,
@@ -773,6 +774,45 @@ describe('findProjectRoot', () => {
 });
 
 // ---------------------------------------------------------------------------
+// isBypassPermissions
+// ---------------------------------------------------------------------------
+describe('isBypassPermissions', () => {
+  it('should return true for permissions.defaultMode === "bypassPermissions"', () => {
+    expect(isBypassPermissions({ permissions: { defaultMode: 'bypassPermissions' } })).toBe(true);
+  });
+
+  it('should return true for top-level bypassPermissions === true (backward compat)', () => {
+    expect(isBypassPermissions({ bypassPermissions: true })).toBe(true);
+  });
+
+  it('should return true when both are set', () => {
+    expect(
+      isBypassPermissions({
+        bypassPermissions: true,
+        permissions: { defaultMode: 'bypassPermissions' },
+      }),
+    ).toBe(true);
+  });
+
+  it('should return false for other defaultMode values', () => {
+    expect(isBypassPermissions({ permissions: { defaultMode: 'default' } })).toBe(false);
+    expect(isBypassPermissions({ permissions: { defaultMode: 'acceptEdits' } })).toBe(false);
+    expect(isBypassPermissions({ permissions: { defaultMode: 'plan' } })).toBe(false);
+    expect(isBypassPermissions({ permissions: { defaultMode: 'dontAsk' } })).toBe(false);
+  });
+
+  it('should return false for bypassPermissions !== true', () => {
+    expect(isBypassPermissions({ bypassPermissions: false })).toBe(false);
+    expect(isBypassPermissions({ bypassPermissions: 'true' })).toBe(false);
+  });
+
+  it('should return false when neither is set', () => {
+    expect(isBypassPermissions({})).toBe(false);
+    expect(isBypassPermissions({ permissions: {} })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // loadPermissionSettings
 // ---------------------------------------------------------------------------
 describe('loadPermissionSettings', () => {
@@ -811,7 +851,7 @@ describe('loadPermissionSettings', () => {
     expect(result.ask.bashPatterns).toEqual([]);
   });
 
-  it('should merge global and project settings', () => {
+  it('should merge global and project settings including allow', () => {
     const projectRoot = '/home/user/project';
     existsSyncSpy.mockImplementation((p: string) => {
       return p === path.join(projectRoot, '.claude');
@@ -839,8 +879,8 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
 
-    // プロジェクト設定の allow は無視される（セキュリティ対策）
-    expect(result.allow.bashPatterns).toEqual(['git:*']);
+    // プロジェクト設定の allow もマージされる (Claude Code 本家と同じ)
+    expect(result.allow.bashPatterns).toEqual(['git:*', 'npm:*']);
     expect(result.allow.toolPatterns).toEqual(['Edit']);
     expect(result.deny.bashPatterns).toEqual(['rm -rf /:*', 'sudo:*']);
   });
@@ -872,10 +912,9 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
 
-    // settings.json (Git 管理) の allow は無視される（セキュリティ対策）
-    // settings.local.json (ローカル) の allow はマージされる
+    // 全設定ファイルの allow/deny/ask がマージされる (Claude Code 本家と同じ)
     expect(result.allow.bashPatterns).toEqual(['git:*', 'npm:*']);
-    expect(result.allow.toolPatterns).toEqual([]);
+    expect(result.allow.toolPatterns).toEqual(['Edit']);
     expect(result.deny.bashPatterns).toEqual(['sudo:*']);
     expect(result.ask.bashPatterns).toEqual(['docker:*']);
   });
@@ -893,6 +932,7 @@ describe('loadPermissionSettings', () => {
     expect(result.deny.toolPatterns).toEqual([]);
     expect(result.ask.bashPatterns).toEqual([]);
     expect(result.ask.toolPatterns).toEqual([]);
+    expect(result.bypassPermissions).toBe(false);
   });
 
   it('should handle project settings with non-Bash deny entries', () => {
@@ -915,6 +955,131 @@ describe('loadPermissionSettings', () => {
 
     const result = loadPermissionSettings(projectRoot);
     expect(result.deny.toolPatterns).toEqual(['WebFetch', 'mcp__dangerous__*']);
+  });
+
+  // --- bypassPermissions ---
+
+  it('should set bypassPermissions when global settings has defaultMode', () => {
+    existsSyncSpy.mockReturnValue(false);
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({
+          permissions: { defaultMode: 'bypassPermissions', allow: ['Bash(git:*)'] },
+        });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings('/tmp/no-project');
+    expect(result.bypassPermissions).toBe(true);
+    expect(result.allow.bashPatterns).toEqual(['git:*']);
+  });
+
+  it('should set bypassPermissions when global settings has top-level flag (backward compat)', () => {
+    existsSyncSpy.mockReturnValue(false);
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({
+          bypassPermissions: true,
+          permissions: { allow: ['Bash(git:*)'] },
+        });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings('/tmp/no-project');
+    expect(result.bypassPermissions).toBe(true);
+    expect(result.allow.bashPatterns).toEqual(['git:*']);
+  });
+
+  it('should set bypassPermissions when settings.local.json has defaultMode', () => {
+    const projectRoot = '/home/user/project';
+    existsSyncSpy.mockImplementation((p: string) => {
+      return p === path.join(projectRoot, '.claude');
+    });
+
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({ permissions: {} });
+      }
+      if (filePath === path.join(projectRoot, '.claude', 'settings.local.json')) {
+        return JSON.stringify({ permissions: { defaultMode: 'bypassPermissions' } });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings(projectRoot);
+    expect(result.bypassPermissions).toBe(true);
+  });
+
+  it('should set bypassPermissions when settings.local.json has top-level flag', () => {
+    const projectRoot = '/home/user/project';
+    existsSyncSpy.mockImplementation((p: string) => {
+      return p === path.join(projectRoot, '.claude');
+    });
+
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({ permissions: {} });
+      }
+      if (filePath === path.join(projectRoot, '.claude', 'settings.local.json')) {
+        return JSON.stringify({ bypassPermissions: true });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings(projectRoot);
+    expect(result.bypassPermissions).toBe(true);
+  });
+
+  it('should NOT set bypassPermissions from project settings.json (Git managed)', () => {
+    const projectRoot = '/home/user/project';
+    existsSyncSpy.mockImplementation((p: string) => {
+      return p === path.join(projectRoot, '.claude');
+    });
+
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({ permissions: {} });
+      }
+      if (filePath === path.join(projectRoot, '.claude', 'settings.json')) {
+        return JSON.stringify({
+          bypassPermissions: true,
+          permissions: { defaultMode: 'bypassPermissions', deny: ['Bash(rm:*)'] },
+        });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings(projectRoot);
+    expect(result.bypassPermissions).toBe(false);
+    expect(result.deny.bashPatterns).toEqual(['rm:*']);
+  });
+
+  it('should default bypassPermissions to false when not set', () => {
+    existsSyncSpy.mockReturnValue(false);
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({ permissions: { allow: ['Edit'] } });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings('/tmp/no-project');
+    expect(result.bypassPermissions).toBe(false);
+  });
+
+  it('should not set bypassPermissions for other defaultMode values', () => {
+    existsSyncSpy.mockReturnValue(false);
+    readFileSyncSpy.mockImplementation((filePath: string) => {
+      if (filePath === SETTINGS_PATH) {
+        return JSON.stringify({ permissions: { defaultMode: 'acceptEdits' } });
+      }
+      throw new Error('ENOENT');
+    });
+
+    const result = loadPermissionSettings('/tmp/no-project');
+    expect(result.bypassPermissions).toBe(false);
   });
 });
 

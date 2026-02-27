@@ -28,12 +28,14 @@ const path = require('path');
 const os = require('os');
 
 // web-tree-sitter: 開発時は node_modules、パッケージ時は extraResource から解決
+// v0.25 は package.json に main がなく exports のみのため、
+// パッケージ時は tree-sitter.cjs を直接指定する必要がある
 let TreeSitter = null;
 try {
   TreeSitter = require('web-tree-sitter');
 } catch {
   try {
-    TreeSitter = require(path.join(__dirname, '..', 'web-tree-sitter'));
+    TreeSitter = require(path.join(__dirname, '..', 'web-tree-sitter', 'tree-sitter.cjs'));
   } catch {
     TreeSitter = null;
   }

@@ -1,0 +1,60 @@
+#!/bin/bash
+# Claude Watch — フックセットアップ CLI ラッパー
+#
+# Homebrew cask の binary ディレクティブで /usr/local/bin/claude-watch-setup にリンクされる。
+# setup.js を Node.js で実行する。
+#
+# Usage:
+#   claude-watch-setup          — 対話式メニュー
+#   claude-watch-setup --all    — 全フック・全ツール登録
+#   claude-watch-setup --remove — 全フック削除
+
+set -euo pipefail
+
+# スクリプト自体のディレクトリを解決 (symlink を辿る)
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+SETUP_JS="$SCRIPT_DIR/setup.js"
+
+if [ ! -f "$SETUP_JS" ]; then
+  echo "Error: setup.js not found at $SETUP_JS" >&2
+  exit 1
+fi
+
+# Node.js を探す
+find_node() {
+  # 1. システムの node
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return
+  fi
+
+  # 2. Homebrew の node
+  for prefix in /opt/homebrew /usr/local; do
+    if [ -x "$prefix/bin/node" ]; then
+      echo "$prefix/bin/node"
+      return
+    fi
+  done
+
+  # 3. Electron バンドル内の node (Claude Watch.app)
+  local app_node
+  app_node="$(dirname "$SCRIPT_DIR")/../Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler"
+  # Electron は独立した node バイナリを持たないため、このパスは通常使えない
+
+  return 1
+}
+
+NODE_BIN="$(find_node)" || {
+  echo "Error: Node.js が見つかりません。Node.js をインストールしてください。" >&2
+  echo "  brew install node" >&2
+  exit 1
+}
+
+exec "$NODE_BIN" "$SETUP_JS" "$@"

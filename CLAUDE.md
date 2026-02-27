@@ -117,7 +117,9 @@ npm run make        # DMG/ZIP 作成
    git tag vX.Y.Z
    git push origin main --tags
    ```
-4. GitHub Actions の CI/CD ワークフローは未整備。ビルド成果物 (DMG/ZIP) が必要な場合はローカルで `npm run make` を実行
+4. GitHub Actions (`.github/workflows/release.yml`) が `v*` タグ push をトリガーに自動実行:
+   - テスト → arm64 ビルド → GitHub Release 作成 (ZIP + SHA256)
+   - `TAP_GITHUB_TOKEN` シークレットが設定されていれば Homebrew tap (`htz/homebrew-claude-watch`) も自動更新
 
 ## tree-sitter-bash WASM の更新手順
 

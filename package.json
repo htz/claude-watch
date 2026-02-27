@@ -11,7 +11,8 @@
     "build": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "setup": "tsx scripts/setup.ts"
+    "setup": "tsx scripts/setup.ts",
+    "postinstall": "node scripts/copy-wasm.js"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.6.0",
@@ -37,6 +38,6 @@
   "license": "MIT",
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
-    "shell-quote": "^1.8.3"
+    "web-tree-sitter": "^0.25.3"
   }
 }

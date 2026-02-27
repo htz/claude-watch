@@ -27,23 +27,63 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// shell-quote: 開発時は node_modules、パッケージ時は extraResource から解決
-let shellParse;
+// web-tree-sitter: 開発時は node_modules、パッケージ時は extraResource から解決
+let TreeSitter = null;
 try {
-  shellParse = require('shell-quote').parse;
+  TreeSitter = require('web-tree-sitter');
 } catch {
   try {
-    shellParse = require(path.join(__dirname, '..', 'shell-quote')).parse;
+    TreeSitter = require(path.join(__dirname, '..', 'web-tree-sitter'));
   } catch {
-    shellParse = null;
+    TreeSitter = null;
   }
 }
 
-// shell-quote の変数展開を抑止する Proxy ($HOME → "$HOME" のまま保持)
-const NO_EXPAND_ENV = new Proxy({}, { get: (_, key) => '$' + key });
+let parser = null;
 
-// コマンド区切り演算子
-const COMMAND_SEPARATORS = new Set(['&&', '||', ';', '|', '&']);
+/**
+ * tree-sitter-bash パーサーを初期化する。
+ * WASM ファイルの読み込みが必要なため非同期。
+ * 失敗時は parser = null のまま (graceful degradation)。
+ */
+async function initTreeSitter() {
+  if (!TreeSitter) return;
+
+  try {
+    await TreeSitter.Parser.init();
+
+    // WASM ファイルの探索: web-tree-sitter パッケージと同じディレクトリにコピー済み
+    const candidates = [];
+
+    // 開発時: node_modules/web-tree-sitter/tree-sitter-bash.wasm
+    try {
+      candidates.push(
+        path.join(path.dirname(require.resolve('web-tree-sitter')), 'tree-sitter-bash.wasm')
+      );
+    } catch {
+      // require.resolve が失敗する場合 (パッケージ時)
+    }
+
+    // パッケージ時: extraResource/web-tree-sitter/tree-sitter-bash.wasm
+    candidates.push(path.join(__dirname, '..', 'web-tree-sitter', 'tree-sitter-bash.wasm'));
+
+    let wasmPath = null;
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        wasmPath = p;
+        break;
+      }
+    }
+
+    if (!wasmPath) return;
+
+    const Lang = await TreeSitter.Language.load(wasmPath);
+    parser = new TreeSitter.Parser();
+    parser.setLanguage(Lang);
+  } catch {
+    parser = null;
+  }
+}
 
 const SOCKET_PATH = path.join(os.homedir(), '.claude-watch', 'watch.sock');
 const TIMEOUT_MS = 300000; // 5 minutes
@@ -174,158 +214,6 @@ function loadPermissionSettings(cwd) {
 }
 
 /**
- * シェルの構文状態（クォート・$() 深さ）を行単位で更新する。
- * 複数行にまたがるダブルクォート・シングルクォート・$() を追跡し、
- * extractCommandLines で行を正しく結合するために使用する。
- *
- * @param {string} line - 解析対象の行
- * @param {{ subshellDepth: number, inDoubleQuote: boolean, inSingleQuote: boolean }} state
- * @returns {{ subshellDepth: number, inDoubleQuote: boolean, inSingleQuote: boolean }}
- */
-function updateShellState(line, state) {
-  let { subshellDepth, inDoubleQuote, inSingleQuote } = state;
-  let i = 0;
-
-  while (i < line.length) {
-    const ch = line[i];
-
-    if (inSingleQuote) {
-      if (ch === "'") inSingleQuote = false;
-      i++;
-      continue;
-    }
-
-    if (inDoubleQuote) {
-      if (ch === '\\' && i + 1 < line.length) {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDoubleQuote = false;
-        i++;
-        continue;
-      }
-      if (ch === '$' && i + 1 < line.length && line[i + 1] === '(') {
-        subshellDepth++;
-        i += 2;
-        continue;
-      }
-      if (ch === ')' && subshellDepth > 0) {
-        subshellDepth--;
-        i++;
-        continue;
-      }
-      i++;
-      continue;
-    }
-
-    // 通常モード
-    if (ch === '\\' && i + 1 < line.length) {
-      i += 2;
-      continue;
-    }
-    if (ch === "'") {
-      inSingleQuote = true;
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      inDoubleQuote = true;
-      i++;
-      continue;
-    }
-    if (ch === '$' && i + 1 < line.length && line[i + 1] === '(') {
-      subshellDepth++;
-      i += 2;
-      continue;
-    }
-    if (ch === ')' && subshellDepth > 0) {
-      subshellDepth--;
-      i++;
-      continue;
-    }
-
-    i++;
-  }
-
-  return { subshellDepth, inDoubleQuote, inSingleQuote };
-}
-
-/**
- * 複数行コマンドから実際のコマンド行を抽出する。
- * - ヒアドキュメント (<< MARKER ... MARKER) の内容をスキップ
- * - 行継続 (末尾 \) を結合
- * - $() が複数行にまたがる場合は結合（ヒアドキュメント内を含む）
- * - 空行を除去
- */
-function extractCommandLines(fullCommand) {
-  const rawLines = fullCommand.split('\n');
-  const commands = [];
-  let heredocDelimiter = null;
-  let continuationBuffer = '';
-  let shellState = { subshellDepth: 0, inDoubleQuote: false, inSingleQuote: false };
-
-  for (let i = 0; i < rawLines.length; i++) {
-    const line = rawLines[i];
-
-    // ヒアドキュメント内 → 閉じデリミタまでスキップ
-    if (heredocDelimiter) {
-      // <<- の場合はタブインデント付きの閉じデリミタも許容
-      const trimmed = line.replace(/^\t+/, '').trim();
-      if (trimmed === heredocDelimiter) {
-        heredocDelimiter = null;
-      }
-      continue;
-    }
-
-    // 行継続・クォート継続・サブシェル継続の結合
-    if (continuationBuffer) {
-      continuationBuffer += ' ' + line.trim();
-    } else {
-      continuationBuffer = line;
-    }
-
-    if (continuationBuffer.trimEnd().endsWith('\\')) {
-      continuationBuffer = continuationBuffer.trimEnd().slice(0, -1);
-      continue;
-    }
-
-    const completeLine = continuationBuffer.trim();
-    const needsContinuation = shellState.subshellDepth > 0 || shellState.inDoubleQuote || shellState.inSingleQuote;
-
-    if (!completeLine) {
-      if (!needsContinuation) continuationBuffer = '';
-      continue;
-    }
-
-    // ヒアドキュメント開始を検出 (<<, <<-, 引用符付きデリミタ)
-    // 継続中は raw line のみ検査（バッファ内の << の再検出を防止）
-    const heredocSource = needsContinuation ? line : completeLine;
-    const heredocMatches = [...heredocSource.matchAll(/<<-?\s*\\?['"]?(\w+)['"]?/g)];
-    if (heredocMatches.length > 0) {
-      heredocDelimiter = heredocMatches[heredocMatches.length - 1][1];
-    }
-
-    // シェル構文状態を更新（raw line 単位で判定）
-    shellState = updateShellState(line, shellState);
-
-    // 未閉じのクォートや $() がある場合は次の行と結合するため継続
-    if (shellState.subshellDepth > 0 || shellState.inDoubleQuote || shellState.inSingleQuote) continue;
-
-    // 行を確定
-    commands.push(completeLine);
-    continuationBuffer = '';
-  }
-
-  // 残りの継続バッファ
-  if (continuationBuffer.trim()) {
-    commands.push(continuationBuffer.trim());
-  }
-
-  return commands;
-}
-
-/**
  * コマンド行先頭の環境変数代入 (VAR=value) を除去して実際のコマンドを返す。
  * 対応形式: VAR=val, VAR="val", VAR='val', 複数連続 (A=1 B=2 cmd)
  * 純粋な変数代入のみの行 (コマンドなし) は空文字を返す。
@@ -335,366 +223,123 @@ function stripLeadingEnvVars(command) {
 }
 
 /**
- * 行が純粋な変数代入 (コマンド実行なし) かどうか判定する。
- * export VAR=val, VAR=val (末尾にコマンドなし) にマッチ。
+ * ノードが変数展開 ($var, ${var}) を含むか判定する。
+ * コマンド名が動的に決定される場合に hasUnresolvable を設定するために使用。
  */
-function isPureAssignment(line) {
-  return /^(?:export\s+)?\w+=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)$/.test(line.trim());
-}
-
-/**
- * コマンド行をシェル演算子 (&&, ||, ;, |, &) で分割する。
- * shell-quote でトークナイズし、コマンド区切り演算子で分割する。
- * クォート・エスケープは shell-quote が正しく処理する。
- */
-function splitOnOperators(command) {
-  if (!shellParse) return [command];
-
-  let tokens;
-  try {
-    tokens = shellParse(command, NO_EXPAND_ENV);
-  } catch {
-    return [command];
+function hasVariableExpansion(node) {
+  if (node.type === 'simple_expansion' || node.type === 'expansion') {
+    return true;
   }
-
-  const commands = [];
-  let current = [];
-  let hasNonCommentTokens = false;
-
-  for (const token of tokens) {
-    // コメントトークン {comment: "..."} → スキップ
-    if (typeof token === 'object' && token !== null && 'comment' in token) {
-      continue;
-    }
-
-    hasNonCommentTokens = true;
-
-    if (typeof token === 'object' && token.op && COMMAND_SEPARATORS.has(token.op)) {
-      // コマンド区切り演算子 → ここまでを1コマンドとして確定
-      if (current.length > 0) {
-        commands.push(current.join(' '));
-        current = [];
-      }
-    } else if (typeof token === 'object' && token.pattern) {
-      // グロブパターン (*.txt 等) — op: "glob" より pattern を優先
-      current.push(token.pattern);
-    } else if (typeof token === 'string') {
-      current.push(token);
-    } else if (typeof token === 'object' && token.op) {
-      // リダイレクト (>, <, >>, >&, etc.) やサブシェル括弧 → コマンドの一部として保持
-      current.push(token.op);
-    }
+  for (let i = 0; i < node.childCount; i++) {
+    if (hasVariableExpansion(node.child(i))) return true;
   }
-
-  if (current.length > 0) {
-    commands.push(current.join(' '));
-  }
-
-  // コメントのみの入力 → 空配列 (コマンドなし)
-  if (!hasNonCommentTokens) return [];
-
-  return commands.length > 0 ? commands : [command];
-}
-
-/**
- * コマンドにシェルのコマンド置換 ($() や バッククォート) が含まれるか検出する。
- * shell-quote のトークンを解析: $ + ( 演算子 = 非クォート $()、
- * 文字列トークン内の $( や ` = クォート内の置換。
- *
- * 注意: shell-quote はシングルクォートとダブルクォートの区別を保持しないため、
- * '$(safe)' もダブルクォート内と同様に検出される (安全側に倒す)。
- */
-function containsCommandSubstitution(command) {
-  if (!shellParse) return false;
-
-  let tokens;
-  try {
-    tokens = shellParse(command, NO_EXPAND_ENV);
-  } catch {
-    return true; // パース失敗 → 安全側: 置換ありとみなす
-  }
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (typeof token !== 'string') continue;
-
-    // 非クォート $(): "$" トークン + "(" 演算子
-    if (token === '$' && i + 1 < tokens.length &&
-        typeof tokens[i + 1] === 'object' && tokens[i + 1].op === '(') {
-      return true;
-    }
-
-    // 文字列トークン内の $( (クォート内 $())
-    if (/\$\(/.test(token)) return true;
-
-    // バッククォート
-    if (token.includes('`')) return true;
-  }
-
   return false;
 }
 
 /**
- * 文字列トークン内の $(...) をバランスド括弧で抽出する。
- * ダブルクォート内に埋め込まれた $() に対応 (shell-quote は文字列として返す)。
- */
-function extractDollarParenFromString(str) {
-  const results = [];
-  let i = 0;
-  while (i < str.length) {
-    if (str[i] === '$' && i + 1 < str.length && str[i + 1] === '(') {
-      let depth = 1;
-      let j = i + 2;
-      while (j < str.length && depth > 0) {
-        if (str[j] === '(') depth++;
-        else if (str[j] === ')') depth--;
-        j++;
-      }
-      if (depth === 0) {
-        results.push(str.slice(i + 2, j - 1));
-      }
-      i = j;
-    } else {
-      i++;
-    }
-  }
-  return results;
-}
-
-/**
- * トークンが変数代入 (VAR=value) かどうか判定する。
- * shell-quote はクォートを除去済みなので、文字列トークンの先頭が \w+= であれば代入。
- */
-function isAssignmentToken(token) {
-  return typeof token === 'string' && /^\w+=/.test(token);
-}
-
-/**
- * current トークン配列から先頭の変数代入トークンを除去し、コマンド文字列を返す。
- * 全てが代入の場合は null を返す（純粋な変数代入行）。
+ * AST を再帰的に walk し、全 command ノードのテキストを収集する。
+ * - variable_assignment / declaration_command は除外（コマンドではない）
+ * - command_substitution 内のコマンドも再帰的に抽出
+ * - 動的コマンド名 ($cmd) を検出した場合は hasUnresolvable = true
  *
- * 例: ['FOO=bar', 'npm', 'test'] → 'npm test'
- *     ['MARKER=/tmp/foo']        → null
+ * @param {object} rootNode - tree-sitter の rootNode
+ * @returns {{ commands: string[], hasUnresolvable: boolean }}
  */
-function buildCommandFromTokens(currentTokens) {
-  let start = 0;
-  while (start < currentTokens.length && /^\w+=/.test(currentTokens[start])) {
-    start++;
+function extractCommandsFromAST(rootNode) {
+  const commands = [];
+  let hasUnresolvable = false;
+
+  function walk(node) {
+    // command ノード = 実行されるコマンド
+    if (node.type === 'command') {
+      const nameNode = node.childForFieldName('name');
+      if (nameNode) {
+        // 動的コマンド名 ($cmd, ${cmd}) の検出
+        if (hasVariableExpansion(nameNode)) {
+          hasUnresolvable = true;
+        }
+        // variable_assignment (FOO=bar cmd → cmd) を除去してコマンド部分のみ抽出
+        const hasAssignments = node.namedChildren.some(c => c.type === 'variable_assignment');
+        if (hasAssignments) {
+          const parts = [];
+          for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i);
+            if (child.type !== 'variable_assignment') {
+              parts.push(child.text);
+            }
+          }
+          commands.push(parts.join(' '));
+        } else {
+          commands.push(node.text);
+        }
+      } else {
+        // コマンド名がない場合（純粋な変数代入 FOO=bar）はスキップ
+        // ただし名前なしコマンドでも引数があれば（まれ）安全側に倒す
+        const hasArgs = node.namedChildCount > 0 &&
+          node.namedChildren.some(c => c.type !== 'variable_assignment');
+        if (hasArgs) {
+          commands.push(node.text);
+        }
+      }
+      // command の中にネストされた command_substitution があれば子ノードを走査
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        if (child.type !== 'command_name') {
+          walk(child);
+        }
+      }
+      return;
+    }
+
+    // variable_assignment は command の外でも出現する（トップレベル代入）
+    // その値に command_substitution が含まれる場合は走査する
+    if (node.type === 'variable_assignment') {
+      const valueNode = node.childForFieldName('value');
+      if (valueNode) walk(valueNode);
+      return;
+    }
+
+    // declaration_command (local, declare, export 等) の引数内にある
+    // command_substitution のみ走査
+    if (node.type === 'declaration_command') {
+      for (let i = 0; i < node.childCount; i++) {
+        walk(node.child(i));
+      }
+      return;
+    }
+
+    // 全子ノードを再帰（command_substitution 内も自動的に走査）
+    for (let i = 0; i < node.childCount; i++) {
+      walk(node.child(i));
+    }
   }
-  if (start >= currentTokens.length) return null; // 純粋な変数代入
-  return currentTokens.slice(start).join(' ');
+
+  walk(rootNode);
+  return { commands, hasUnresolvable };
 }
 
 /**
- * shell-quote トークン配列から全サブコマンドを再帰的に抽出する (内部用)。
- * - 演算子 (&&, ||, ;, |, &) で分割
- * - 先頭の変数代入トークン (VAR=value) を除去してコマンドのみ抽出
- * - 非クォート $() のトークン列から内部コマンドを再帰的に抽出
- * - 文字列トークン内の $() (ダブルクォート内) も抽出
- * - バッククォートは解決不能 (hasUnresolvable)
+ * コマンド文字列をパースして全サブコマンドを抽出する。
+ * parser が初期化されていない場合は入力をそのまま返す (graceful degradation)。
+ *
+ * @param {string} command - Bash コマンド文字列
+ * @returns {{ commands: string[], hasUnresolvable: boolean }}
  */
-function extractFromTokens(tokens) {
-  const result = { commands: [], hasUnresolvable: false };
-  let current = [];
-  let i = 0;
-  let hasNonCommentTokens = false;
-  // shell-quote がネスト $() を誤パースした場合の代入値残骸をスキップするフラグ。
-  // VAR="...-$(... "$(inner)"... )" のように、shell-quote がダブルクォート境界を
-  // 誤認識し、代入値の一部を別トークンとして分離してしまうケースに対応。
-  let inAssignmentValue = false;
-
-  /** current を1コマンドとして確定し、代入トークンを除去して result に追加 */
-  function flushCurrent() {
-    if (current.length === 0) return;
-    const cmd = buildCommandFromTokens(current);
-    if (cmd && cmd.trim()) {
-      result.commands.push(cmd);
-    }
-    current = [];
+function parseAndExtractCommands(command) {
+  if (!parser) {
+    // tree-sitter 未初期化: 入力全体を1コマンドとして扱い、安全側に hasUnresolvable
+    return { commands: [command], hasUnresolvable: true };
   }
 
-  while (i < tokens.length) {
-    const token = tokens[i];
+  const tree = parser.parse(command);
+  const result = extractCommandsFromAST(tree.rootNode);
 
-    // コメントトークン → スキップ
-    if (typeof token === 'object' && token !== null && 'comment' in token) {
-      i++;
-      continue;
-    }
-
-    hasNonCommentTokens = true;
-
-    // コマンド区切り演算子 → ここまでを1コマンドとして確定、代入コンテキスト終了
-    if (typeof token === 'object' && token !== null && token.op && COMMAND_SEPARATORS.has(token.op)) {
-      inAssignmentValue = false;
-      flushCurrent();
-      i++;
-      continue;
-    }
-
-    // 代入値の残骸スキップ: shell-quote の誤パースで分離されたトークン
-    if (inAssignmentValue) {
-      // トークン内の $() からはコマンドを抽出（ベストエフォート）
-      if (typeof token === 'string') {
-        if (token.includes('`')) result.hasUnresolvable = true;
-        if (/\$\(/.test(token)) {
-          const extracted = extractDollarParenFromString(token);
-          for (const cmd of extracted) {
-            const nested = extractAllSubCommands(cmd);
-            result.commands.push(...nested.commands);
-            if (nested.hasUnresolvable) result.hasUnresolvable = true;
-          }
-        }
-      }
-      i++;
-      continue;
-    }
-
-    // 非クォート $() / $((): "$" or "prefix$" トークン + {op: "("} で開始
-    // VAR=$() 形式では "VAR=$" トークンになるため endsWith('$') で検出
-    if (typeof token === 'string' && token.endsWith('$') &&
-        i + 1 < tokens.length &&
-        typeof tokens[i + 1] === 'object' && tokens[i + 1] !== null && tokens[i + 1].op === '(') {
-      const isAssignment = isAssignmentToken(token);
-
-      // $ より前のプレフィックスを判定 ($() と $(( で共通)
-      if (token !== '$') {
-        const prefix = token.slice(0, -1);
-        // 変数代入プレフィックス (MARKER=, FOO=bar-) はコマンドではないため除外
-        // コマンドプレフィックス (echo 等) は保持
-        if (prefix && !isAssignment) {
-          current.push(prefix);
-        }
-      }
-
-      // $(( 算術展開の検出: $( の直後にさらに ( があれば $(( でありコマンド置換ではない
-      // 例: echo $((1+2)), VAR=$((x*3))
-      if (i + 2 < tokens.length &&
-          typeof tokens[i + 2] === 'object' && tokens[i + 2] !== null && tokens[i + 2].op === '(') {
-        // 算術展開はコマンドを含まない — )) まで読み飛ばし
-        let depth = 1;
-        let j = i + 2;
-        while (j < tokens.length && depth > 0) {
-          const t = tokens[j];
-          if (typeof t === 'object' && t !== null && t.op === '(') depth++;
-          else if (typeof t === 'object' && t !== null && t.op === ')') {
-            depth--;
-            if (depth === 0) break;
-          }
-          j++;
-        }
-        i = j + 1;
-        continue;
-      }
-
-      // 通常の $() コマンド置換 — 内部コマンドを再帰抽出
-      let depth = 1;
-      let j = i + 2;
-      const innerTokens = [];
-      while (j < tokens.length && depth > 0) {
-        const t = tokens[j];
-        if (typeof t === 'object' && t !== null && t.op === '(') depth++;
-        else if (typeof t === 'object' && t !== null && t.op === ')') {
-          depth--;
-          if (depth === 0) break;
-        }
-        if (depth > 0) innerTokens.push(t);
-        j++;
-      }
-
-      if (innerTokens.length > 0) {
-        const nested = extractFromTokens(innerTokens);
-        result.commands.push(...nested.commands);
-        if (nested.hasUnresolvable) result.hasUnresolvable = true;
-      }
-
-      // shell-quote が代入トークン内の $() をネスト誤パースしている場合、
-      // 閉じ括弧後の残骸トークンをスキップする。
-      // 判定: 代入トークンの値部分に literal $( が含まれている
-      // (例: "MARKER=prefix-$(echo -n $" の "prefix-$(echo -n " 部分)
-      if (isAssignment && /\$\(/.test(token.slice(0, -1))) {
-        inAssignmentValue = true;
-      }
-
-      i = j + 1;
-      continue;
-    }
-
-    // 文字列トークン
-    if (typeof token === 'string') {
-      // バッククォート検出
-      if (token.includes('`')) result.hasUnresolvable = true;
-
-      // ダブルクォート内の $() (文字列に埋め込まれた形)
-      if (/\$\(/.test(token) && token !== '$') {
-        const extracted = extractDollarParenFromString(token);
-        for (const cmd of extracted) {
-          const nested = extractAllSubCommands(cmd);
-          result.commands.push(...nested.commands);
-          if (nested.hasUnresolvable) result.hasUnresolvable = true;
-        }
-      }
-
-      current.push(token);
-      i++;
-      continue;
-    }
-
-    // グロブパターン
-    if (typeof token === 'object' && token !== null && token.pattern) {
-      current.push(token.pattern);
-      i++;
-      continue;
-    }
-
-    // その他の演算子
-    if (typeof token === 'object' && token !== null && token.op) {
-      // サブシェル括弧 ( ) はコマンドではなくグルーピング — 透過的にスキップ
-      // 例: (echo hello) → echo hello, node -e console.log(1) → node -e console.log 1
-      if (token.op === '(' || token.op === ')') {
-        i++;
-        continue;
-      }
-      // リダイレクト (>, <, >> 等) はコマンドの一部として保持
-      current.push(token.op);
-      i++;
-      continue;
-    }
-
-    i++;
-  }
-
-  flushCurrent();
-
-  // コメントのみ → 空
-  if (!hasNonCommentTokens) {
-    result.commands = [];
+  // ERROR ノードが存在する場合はパース失敗 — 安全側に倒す
+  if (tree.rootNode.hasError) {
+    result.hasUnresolvable = true;
   }
 
   return result;
-}
-
-/**
- * コマンド文字列から全サブコマンドを再帰的に抽出する。
- * 演算子分割、$() 内部コマンド抽出、コメント除去を統合的に処理する。
- *
- * @returns {{ commands: string[], hasUnresolvable: boolean }}
- *   commands: 抽出された全サブコマンド (外部コマンド + $() 内部コマンド)
- *   hasUnresolvable: バッククォート等、静的解析不能な置換を含む場合 true
- */
-function extractAllSubCommands(line) {
-  if (!shellParse) {
-    return { commands: [line], hasUnresolvable: false };
-  }
-
-  let tokens;
-  try {
-    tokens = shellParse(line, NO_EXPAND_ENV);
-  } catch {
-    return { commands: [line], hasUnresolvable: true };
-  }
-
-  return extractFromTokens(tokens);
 }
 
 /**
@@ -729,147 +374,50 @@ function matchesSingleCommand(command, patterns) {
 }
 
 /**
- * シェル制御構文の行を正規化する。
- * - 純粋な構文キーワード (then, fi, done 等) → null (除外)
- * - if/elif COND; then → 条件コマンドを抽出
- * - while/until COND; do → 条件コマンドを抽出
- * - for/case/case分岐パターン → null (構文的要素)
- * - それ以外 → そのまま返す
- */
-function normalizeShellLine(line) {
-  const trimmed = line.trim();
-
-  // 純粋な構文キーワード (リダイレクト・コメント付きも許容: done < file, fi # comment)
-  if (/^(then|else|fi|do|done|esac)\b/.test(trimmed) || /^(;;|\{|\})(\s|$)/.test(trimmed)) return null;
-
-  // for VAR in ...; do  /  for ((expr)); do
-  if (/^for\s+/.test(trimmed)) return null;
-
-  // case ... in
-  if (/^case\s+.+\s+in$/.test(trimmed)) return null;
-
-  // case 分岐パターン (例: foo), *.txt|*.md), *)  )
-  if (/^[^(]*\)\s*$/.test(trimmed)) return null;
-
-  // if/elif CONDITION; then → 条件コマンドを抽出
-  const ifMatch = trimmed.match(/^(?:if|elif)\s+(.*?)\s*;\s*then$/);
-  if (ifMatch) return ifMatch[1];
-
-  // while/until CONDITION; do → 条件コマンドを抽出
-  const whileMatch = trimmed.match(/^(?:while|until)\s+(.*?)\s*;\s*do$/);
-  if (whileMatch) return whileMatch[1];
-
-  // if/elif (then が次行)
-  const ifNoThen = trimmed.match(/^(?:if|elif)\s+(.+)$/);
-  if (ifNoThen) return ifNoThen[1];
-
-  // while/until (do が次行)
-  const whileNoDo = trimmed.match(/^(?:while|until)\s+(.+)$/);
-  if (whileNoDo) return whileNoDo[1];
-
-  return trimmed;
-}
-
-/**
  * Check if a Bash command matches any of the given patterns.
  *
  * 処理フロー:
- *   1. 複数行 → extractCommandLines (ヒアドキュメント・行継続を考慮)
- *   2. normalizeShellLine (if/for/fi 等のシェル制御構文を正規化)
- *   3. isPureAssignment で変数代入行を除外
- *   4. extractAllSubCommands (演算子分割 + $() 再帰展開)
- *   5. パターン照合
+ *   1. tree-sitter-bash で AST にパース
+ *   2. extractCommandsFromAST で全コマンドノードを抽出
+ *   3. パターン照合
  *
  * @param {string} command - Bash コマンド文字列
  * @param {string[]} patterns - パターンリスト
  * @param {'all'|'any'} mode
  *   - 'all': 全サブコマンド ($() 内含む) がマッチした場合 true (allow 用)
- *            バッククォート等の解決不能な置換を含む場合は false
+ *            動的コマンド名等の解決不能な置換を含む場合は false
  *   - 'any': いずれかのサブコマンドがマッチした場合 true (deny 用)
  */
 function matchesCommandPattern(command, patterns, mode) {
   if (mode === undefined) mode = 'all';
 
-  // コマンド行を抽出・正規化
-  let lines;
-  if (command.includes('\n')) {
-    lines = extractCommandLines(command)
-      .map(cmd => normalizeShellLine(cmd))
-      .filter(cmd => cmd !== null);
-  } else {
-    lines = [command];
-  }
+  const { commands, hasUnresolvable } = parseAndExtractCommands(command);
 
-  // 全サブコマンドを抽出 ($() 内も再帰的に展開)
-  const allSubCommands = [];
-  let hasUnresolvable = false;
+  if (commands.length === 0) return false;
 
-  for (const line of lines) {
-    if (isPureAssignment(line)) continue;
-
-    const extracted = extractAllSubCommands(line);
-    if (extracted.hasUnresolvable) hasUnresolvable = true;
-
-    for (const cmd of extracted.commands) {
-      const trimmed = cmd.trim();
-      if (trimmed && !isPureAssignment(trimmed)) {
-        allSubCommands.push(trimmed);
-      }
-    }
-  }
-
-  if (allSubCommands.length === 0) return false;
-
-  // allow 用: バッククォート等の解決不能な置換がある場合は安全側に拒否
+  // allow 用: 解決不能な要素がある場合は安全側に拒否
   if (mode !== 'any' && hasUnresolvable) return false;
 
   if (mode === 'any') {
     // deny 用: いずれかがマッチすれば true
-    return allSubCommands.some(cmd => matchesSingleCommand(cmd, patterns));
+    return commands.some(cmd => matchesSingleCommand(cmd, patterns));
   }
 
-  return allSubCommands.every(cmd => matchesSingleCommand(cmd, patterns));
+  return commands.every(cmd => matchesSingleCommand(cmd, patterns));
 }
 
 /**
  * Bash コマンドから allow パターンにマッチしないサブコマンドを抽出する。
- * matchesCommandPattern と同じパイプライン（extractCommandLines → normalizeShellLine → extractAllSubCommands）を使用。
  *
  * @param {string} command - Bash コマンド文字列
  * @param {string[]} allowPatterns - allow リストの Bash パターン
  * @returns {{ unmatched: string[], hasUnresolvable: boolean }}
  */
 function extractUnmatchedCommands(command, allowPatterns) {
-  // コマンド行を抽出・正規化
-  let lines;
-  if (command.includes('\n')) {
-    lines = extractCommandLines(command)
-      .map(cmd => normalizeShellLine(cmd))
-      .filter(cmd => cmd !== null);
-  } else {
-    lines = [command];
-  }
-
-  // 全サブコマンドを抽出 ($() 内も再帰的に展開)
-  const allSubCommands = [];
-  let hasUnresolvable = false;
-
-  for (const line of lines) {
-    if (isPureAssignment(line)) continue;
-
-    const extracted = extractAllSubCommands(line);
-    if (extracted.hasUnresolvable) hasUnresolvable = true;
-
-    for (const cmd of extracted.commands) {
-      const trimmed = cmd.trim();
-      if (trimmed && !isPureAssignment(trimmed)) {
-        allSubCommands.push(trimmed);
-      }
-    }
-  }
+  const { commands, hasUnresolvable } = parseAndExtractCommands(command);
 
   // マッチしないサブコマンドを収集
-  const unmatched = allSubCommands.filter(cmd => !matchesSingleCommand(cmd, allowPatterns));
+  const unmatched = commands.filter(cmd => !matchesSingleCommand(cmd, allowPatterns));
 
   return { unmatched, hasUnresolvable };
 }
@@ -979,6 +527,9 @@ function requestPermission(toolName, toolInput, unmatchedCommands, isAskListed) 
 }
 
 async function main() {
+  // tree-sitter の初期化 (WASM 読み込み)
+  await initTreeSitter();
+
   // Read stdin (with size limit)
   let input = '';
   for await (const chunk of process.stdin) {
@@ -1100,4 +651,4 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, extractCommandLines, matchesToolPattern, stripLeadingEnvVars, isPureAssignment, normalizeShellLine, splitOnOperators, containsCommandSubstitution, extractAllSubCommands, extractDollarParenFromString, extractUnmatchedCommands, updateShellState, isAssignmentToken, buildCommandFromTokens };
+module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, matchesToolPattern, stripLeadingEnvVars, extractUnmatchedCommands, extractCommandsFromAST, parseAndExtractCommands, initTreeSitter };

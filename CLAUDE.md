@@ -19,6 +19,7 @@ src/
 ├── shared/         # メイン/レンダラー/テスト共有 (types.ts, constants.ts, danger-level.ts, tool-classifier.ts)
 └── hooks/          # Claude Code フックスクリプト (CommonJS .js)
 scripts/            # セットアップ・ユーティリティ
+vendor/             # tree-sitter-bash.wasm (ABI 15)
 test/               # Vitest テスト
 ```
 
@@ -39,10 +40,17 @@ npm run make        # DMG/ZIP 作成
 ### フックスクリプト (`src/hooks/*.js`)
 - Claude Code の `settings.json` から呼び出される **外部プロセス**
 - Electron のバンドルには含まれず、Node.js で直接実行される
-- そのため **CommonJS (.js)** で記述し、外部依存なし (Node.js 標準モジュールのみ)
+- **CommonJS (.js)** で記述、外部依存は `web-tree-sitter` (WASM) のみ
 - `permission-hook.js`: PreToolUse — ポップアップでユーザー応答を待つ (最大5分)
 - `notify-hook.js`: Notification — 通知を送信して即座に終了
 - `stop-hook.js`: Stop — タスク完了通知を送信して即座に終了
+
+### パーミッションフックのコマンド解析 (`permission-hook.js`)
+- **tree-sitter-bash (WASM)** で Bash コマンドを AST にパースし、全 `command` ノードを抽出
+- 配列定義 (`files=(...)`)、ヒアドキュメント、制御構造を正しく認識しコマンドと区別
+- `vendor/tree-sitter-bash.wasm` — tree-sitter-bash v0.25.1 公式リリース (ABI 15)
+- `scripts/copy-wasm.js` (postinstall) で `vendor/` → `node_modules/web-tree-sitter/` にコピー
+- tree-sitter 初期化失敗時は graceful degradation (入力全体を1コマンドとして扱う)
 
 ### パーミッションフックの権限チェック (`permission-hook.js`)
 - `settings.json` の `permissions` (allow/deny/ask) を尊重し、Claude 本体と同じ判断を行う

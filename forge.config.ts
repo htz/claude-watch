@@ -15,7 +15,7 @@ const config: ForgeConfig = {
       LSUIElement: true,
       CFBundleIconFile: 'icon.icns',
     },
-    extraResource: ['./src/hooks', './assets', './node_modules/shell-quote'],
+    extraResource: ['./src/hooks', './assets', './node_modules/web-tree-sitter'],
   },
   makers: [
     new MakerZIP({}, ['darwin']),

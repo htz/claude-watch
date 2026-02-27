@@ -27,22 +27,28 @@ const HOOKS_DIR = __dirname;
 // Tool options for PreToolUse matcher
 // ---------------------------------------------------------------------------
 const TOOL_OPTIONS = [
-  { name: 'Bash',         label: 'Bash' },
-  { name: 'Edit',         label: 'Edit' },
-  { name: 'Write',        label: 'Write' },
-  { name: 'WebFetch',     label: 'WebFetch' },
+  { name: 'Bash', label: 'Bash' },
+  { name: 'Edit', label: 'Edit' },
+  { name: 'Write', label: 'Write' },
+  { name: 'WebFetch', label: 'WebFetch' },
   { name: 'NotebookEdit', label: 'NotebookEdit' },
-  { name: 'Task',         label: 'Task' },
-  { name: 'mcp__.+',      label: 'MCP tools (mcp__)' },
+  { name: 'Task', label: 'Task' },
+  { name: 'mcp__.+', label: 'MCP tools (mcp__)' },
 ];
 
 // ---------------------------------------------------------------------------
 // Hook definitions
 // ---------------------------------------------------------------------------
 const HOOK_DEFS = [
-  { key: 'PreToolUse',  label: 'PreToolUse (パーミッション確認ポップアップ)', file: 'permission-hook.js', timeout: 300, needsMatcher: true },
-  { key: 'Notification', label: 'Notification (タスク通知)',                   file: 'notify-hook.js',     timeout: 10,  needsMatcher: false },
-  { key: 'Stop',         label: 'Stop (タスク完了通知)',                       file: 'stop-hook.js',       timeout: 10,  needsMatcher: false },
+  {
+    key: 'PreToolUse',
+    label: 'PreToolUse (パーミッション確認ポップアップ)',
+    file: 'permission-hook.js',
+    timeout: 300,
+    needsMatcher: true,
+  },
+  { key: 'Notification', label: 'Notification (タスク通知)', file: 'notify-hook.js', timeout: 10, needsMatcher: false },
+  { key: 'Stop', label: 'Stop (タスク完了通知)', file: 'stop-hook.js', timeout: 10, needsMatcher: false },
 ];
 
 // ---------------------------------------------------------------------------
@@ -66,17 +72,11 @@ function saveSettings(settings) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  fs.writeFileSync(
-    SETTINGS_PATH,
-    JSON.stringify(settings, null, 2) + '\n',
-    { encoding: 'utf-8', mode: 0o600 },
-  );
+  fs.writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
 }
 
 function isOurHook(hookConfig) {
-  return hookConfig.hooks.some(
-    (h) => typeof h.command === 'string' && h.command.includes('claude-watch'),
-  );
+  return hookConfig.hooks.some((h) => typeof h.command === 'string' && h.command.includes('claude-watch'));
 }
 
 function buildMatcher(tools) {
@@ -120,11 +120,13 @@ function registerHook(hooks, def, nodePath, matcher) {
 
   const hookPath = path.join(HOOKS_DIR, def.file);
   const entry = {
-    hooks: [{
-      type: 'command',
-      command: `${nodePath} "${hookPath}"`,
-      timeout: def.timeout,
-    }],
+    hooks: [
+      {
+        type: 'command',
+        command: `${nodePath} "${hookPath}"`,
+        timeout: def.timeout,
+      },
+    ],
   };
   if (matcher !== undefined) {
     entry.matcher = matcher;
@@ -152,9 +154,7 @@ function runAll(nodePath) {
 
   console.log('=== 結果 ===');
   for (const def of HOOK_DEFS) {
-    const toolsInfo = def.needsMatcher
-      ? ` (${TOOL_OPTIONS.map((t) => t.label).join(', ')})`
-      : '';
+    const toolsInfo = def.needsMatcher ? ` (${TOOL_OPTIONS.map((t) => t.label).join(', ')})` : '';
     console.log(`  ✔ ${def.key.padEnd(14)} → 登録${toolsInfo}`);
   }
   console.log('');
@@ -171,7 +171,10 @@ function runRemove() {
     return;
   }
   const hooks = settings.hooks;
-  removeOurHooks(hooks, HOOK_DEFS.map((d) => d.key));
+  removeOurHooks(
+    hooks,
+    HOOK_DEFS.map((d) => d.key),
+  );
   settings.hooks = hooks;
   saveSettings(settings);
 
@@ -227,9 +230,7 @@ async function runInteractive(nodePath) {
     }
     const hooks = settings.hooks;
 
-    const disabledKeys = HOOK_DEFS
-      .filter((d) => !hookSelections.get(d.key))
-      .map((d) => d.key);
+    const disabledKeys = HOOK_DEFS.filter((d) => !hookSelections.get(d.key)).map((d) => d.key);
     removeOurHooks(hooks, disabledKeys);
 
     for (const def of HOOK_DEFS) {
@@ -244,9 +245,7 @@ async function runInteractive(nodePath) {
     console.log('=== 結果 ===');
     for (const def of HOOK_DEFS) {
       if (hookSelections.get(def.key)) {
-        const toolsInfo = def.needsMatcher
-          ? ` (${selectedTools.map((t) => t.label).join(', ')})`
-          : '';
+        const toolsInfo = def.needsMatcher ? ` (${selectedTools.map((t) => t.label).join(', ')})` : '';
         console.log(`  ✔ ${def.key.padEnd(14)} → 登録${toolsInfo}`);
       } else {
         console.log(`  ✗ ${def.key.padEnd(14)} → スキップ`);

@@ -11,10 +11,14 @@
     "build": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "setup": "tsx scripts/setup.ts",
     "postinstall": "node scripts/copy-wasm.js"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
     "@electron-forge/cli": "^7.6.0",
     "@electron-forge/maker-dmg": "^7.6.0",
     "@electron-forge/maker-zip": "^7.6.0",

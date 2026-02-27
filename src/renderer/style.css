@@ -1,5 +1,7 @@
 /* Reset */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -35,9 +37,10 @@
   }
 }
 
-html, body {
+html,
+body {
   background: var(--bg);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   font-size: 13px;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -157,7 +160,7 @@ html, body {
 }
 
 .command-block code {
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-family: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
   font-size: 12px;
   line-height: 1.5;
   color: var(--code-text);
@@ -194,7 +197,7 @@ html, body {
 
 .unmatched-chip {
   display: inline-block;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-family: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
   font-size: 11px;
   line-height: 1.4;
   padding: 2px 8px;

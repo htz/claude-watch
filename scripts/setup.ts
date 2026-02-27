@@ -12,8 +12,8 @@
  */
 
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
+import path from 'path';
 import readline from 'readline';
 
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
@@ -24,35 +24,41 @@ const HOOKS_DIR = path.join(PROJECT_ROOT, 'src', 'hooks');
 // Tool options for PreToolUse matcher
 // ---------------------------------------------------------------------------
 interface ToolOption {
-  name: string;   // regex fragment: "Bash", "Edit", "mcp__.+"
-  label: string;  // 表示名
+  name: string; // regex fragment: "Bash", "Edit", "mcp__.+"
+  label: string; // 表示名
 }
 
 const TOOL_OPTIONS: ToolOption[] = [
-  { name: 'Bash',         label: 'Bash' },
-  { name: 'Edit',         label: 'Edit' },
-  { name: 'Write',        label: 'Write' },
-  { name: 'WebFetch',     label: 'WebFetch' },
+  { name: 'Bash', label: 'Bash' },
+  { name: 'Edit', label: 'Edit' },
+  { name: 'Write', label: 'Write' },
+  { name: 'WebFetch', label: 'WebFetch' },
   { name: 'NotebookEdit', label: 'NotebookEdit' },
-  { name: 'Task',         label: 'Task' },
-  { name: 'mcp__.+',      label: 'MCP tools (mcp__)' },
+  { name: 'Task', label: 'Task' },
+  { name: 'mcp__.+', label: 'MCP tools (mcp__)' },
 ];
 
 // ---------------------------------------------------------------------------
 // Hook definitions
 // ---------------------------------------------------------------------------
 interface HookDef {
-  key: string;      // settings.json のキー
-  label: string;    // 表示名
-  file: string;     // フックスクリプトファイル名
+  key: string; // settings.json のキー
+  label: string; // 表示名
+  file: string; // フックスクリプトファイル名
   timeout: number;
   needsMatcher: boolean; // true = ツール選択で matcher を設定
 }
 
 const HOOK_DEFS: HookDef[] = [
-  { key: 'PreToolUse',   label: 'PreToolUse (パーミッション確認ポップアップ)', file: 'permission-hook.js', timeout: 300, needsMatcher: true },
-  { key: 'Notification',  label: 'Notification (タスク通知)',                   file: 'notify-hook.js',     timeout: 10,  needsMatcher: false },
-  { key: 'Stop',          label: 'Stop (タスク完了通知)',                       file: 'stop-hook.js',       timeout: 10,  needsMatcher: false },
+  {
+    key: 'PreToolUse',
+    label: 'PreToolUse (パーミッション確認ポップアップ)',
+    file: 'permission-hook.js',
+    timeout: 300,
+    needsMatcher: true,
+  },
+  { key: 'Notification', label: 'Notification (タスク通知)', file: 'notify-hook.js', timeout: 10, needsMatcher: false },
+  { key: 'Stop', label: 'Stop (タスク完了通知)', file: 'stop-hook.js', timeout: 10, needsMatcher: false },
 ];
 
 // ---------------------------------------------------------------------------
@@ -76,7 +82,7 @@ function saveSettings(settings: Record<string, unknown>): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+  fs.writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
 }
 
 interface HookEntry {
@@ -91,9 +97,7 @@ interface HookConfig {
 }
 
 function isOurHook(hookConfig: HookConfig): boolean {
-  return hookConfig.hooks.some(
-    (h) => typeof h.command === 'string' && h.command.includes('claude-watch')
-  );
+  return hookConfig.hooks.some((h) => typeof h.command === 'string' && h.command.includes('claude-watch'));
 }
 
 function buildMatcher(tools: ToolOption[]): string {
@@ -116,10 +120,7 @@ function ask(rl: readline.Interface, question: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 // Remove our hooks from settings (used by --remove and selective skip)
 // ---------------------------------------------------------------------------
-function removeOurHooks(
-  hooks: Record<string, HookConfig[]>,
-  keys: string[],
-): void {
+function removeOurHooks(hooks: Record<string, HookConfig[]>, keys: string[]): void {
   for (const key of keys) {
     if (!Array.isArray(hooks[key])) continue;
     hooks[key] = hooks[key].filter((h: HookConfig) => !isOurHook(h));
@@ -133,12 +134,7 @@ function removeOurHooks(
 // ---------------------------------------------------------------------------
 // Register a single hook
 // ---------------------------------------------------------------------------
-function registerHook(
-  hooks: Record<string, HookConfig[]>,
-  def: HookDef,
-  nodePath: string,
-  matcher?: string,
-): void {
+function registerHook(hooks: Record<string, HookConfig[]>, def: HookDef, nodePath: string, matcher?: string): void {
   if (!Array.isArray(hooks[def.key])) {
     hooks[def.key] = [];
   }
@@ -146,11 +142,13 @@ function registerHook(
   hooks[def.key] = hooks[def.key].filter((h: HookConfig) => !isOurHook(h));
 
   const entry: HookConfig = {
-    hooks: [{
-      type: 'command',
-      command: `${nodePath} ${path.join(HOOKS_DIR, def.file)}`,
-      timeout: def.timeout,
-    }],
+    hooks: [
+      {
+        type: 'command',
+        command: `${nodePath} ${path.join(HOOKS_DIR, def.file)}`,
+        timeout: def.timeout,
+      },
+    ],
   };
   if (matcher !== undefined) {
     entry.matcher = matcher;
@@ -178,9 +176,7 @@ function runAll(nodePath: string): void {
 
   console.log('=== 結果 ===');
   for (const def of HOOK_DEFS) {
-    const toolsInfo = def.needsMatcher
-      ? ` (${TOOL_OPTIONS.map((t) => t.label).join(', ')})`
-      : '';
+    const toolsInfo = def.needsMatcher ? ` (${TOOL_OPTIONS.map((t) => t.label).join(', ')})` : '';
     console.log(`  ✔ ${def.key.padEnd(14)} → 登録${toolsInfo}`);
   }
   console.log('');
@@ -197,7 +193,10 @@ function runRemove(): void {
     return;
   }
   const hooks = settings.hooks as Record<string, HookConfig[]>;
-  removeOurHooks(hooks, HOOK_DEFS.map((d) => d.key));
+  removeOurHooks(
+    hooks,
+    HOOK_DEFS.map((d) => d.key),
+  );
   settings.hooks = hooks;
   saveSettings(settings);
 
@@ -230,7 +229,7 @@ async function runInteractive(nodePath: string): Promise<void> {
     console.log('');
 
     // --- PreToolUse が有効ならツール選択 ---
-    let selectedTools: ToolOption[] = [];
+    const selectedTools: ToolOption[] = [];
     if (hookSelections.get('PreToolUse')) {
       console.log('=== PreToolUse 対象ツール ===');
       for (let i = 0; i < TOOL_OPTIONS.length; i++) {
@@ -258,9 +257,7 @@ async function runInteractive(nodePath: string): Promise<void> {
     const hooks = settings.hooks as Record<string, HookConfig[]>;
 
     // 非選択フックの除去
-    const disabledKeys = HOOK_DEFS
-      .filter((d) => !hookSelections.get(d.key))
-      .map((d) => d.key);
+    const disabledKeys = HOOK_DEFS.filter((d) => !hookSelections.get(d.key)).map((d) => d.key);
     removeOurHooks(hooks, disabledKeys);
 
     // 選択フックの登録
@@ -277,9 +274,7 @@ async function runInteractive(nodePath: string): Promise<void> {
     console.log('=== 結果 ===');
     for (const def of HOOK_DEFS) {
       if (hookSelections.get(def.key)) {
-        const toolsInfo = def.needsMatcher
-          ? ` (${selectedTools.map((t) => t.label).join(', ')})`
-          : '';
+        const toolsInfo = def.needsMatcher ? ` (${selectedTools.map((t) => t.label).join(', ')})` : '';
         console.log(`  ✔ ${def.key.padEnd(14)} → 登録${toolsInfo}`);
       } else {
         console.log(`  ✗ ${def.key.padEnd(14)} → スキップ`);

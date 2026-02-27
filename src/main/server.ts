@@ -1,11 +1,18 @@
-import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
+import { SOCKET_DIR, SOCKET_PATH } from '../shared/constants';
 import { analyzeToolDanger, elevateToMinimum } from '../shared/danger-level';
 import { describeToolAction } from '../shared/tool-classifier';
-import { SOCKET_DIR, SOCKET_PATH } from '../shared/constants';
-import type { PermissionRequest, PermissionResponse, NotificationRequest, QueueItem, PopupData, NotificationPopupData } from '../shared/types';
+import type {
+  NotificationPopupData,
+  NotificationRequest,
+  PermissionRequest,
+  PermissionResponse,
+  PopupData,
+  QueueItem,
+} from '../shared/types';
 
 const PERMISSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
@@ -36,7 +43,9 @@ export class ClaudeWatchServer {
       fs.chmodSync(SOCKET_DIR, 0o700);
 
       // Clean up stale socket file from previous crash
-      try { fs.unlinkSync(SOCKET_PATH); } catch {}
+      try {
+        fs.unlinkSync(SOCKET_PATH);
+      } catch {}
 
       this.server = http.createServer((req, res) => {
         this.handleRequest(req, res);
@@ -48,7 +57,9 @@ export class ClaudeWatchServer {
 
       this.server.listen(SOCKET_PATH, () => {
         // ソケットファイルを所有者のみアクセス可能に制限
-        try { fs.chmodSync(SOCKET_PATH, 0o600); } catch {}
+        try {
+          fs.chmodSync(SOCKET_PATH, 0o600);
+        } catch {}
         console.log(`Claude Watch server listening on ${SOCKET_PATH}`);
         resolve();
       });
@@ -69,12 +80,14 @@ export class ClaudeWatchServer {
     }
 
     // Clean up socket file
-    try { fs.unlinkSync(SOCKET_PATH); } catch {}
+    try {
+      fs.unlinkSync(SOCKET_PATH);
+    } catch {}
   }
 
   /** ユーザーがポップアップで応答した。次の表示は呼び出し側に委ねる */
   respondToPermission(id: string, decision: 'allow' | 'deny' | 'skip'): void {
-    const index = this.queue.findIndex(item => item.id === id);
+    const index = this.queue.findIndex((item) => item.id === id);
     if (index === -1) return;
 
     const item = this.queue[index];
@@ -117,7 +130,7 @@ export class ClaudeWatchServer {
 
     let body = '';
     let aborted = false;
-    req.on('data', chunk => {
+    req.on('data', (chunk) => {
       body += chunk;
       if (body.length > MAX_BODY_SIZE) {
         aborted = true;
@@ -149,7 +162,7 @@ export class ClaudeWatchServer {
           res.writeHead(404);
           res.end(JSON.stringify({ error: 'Not found' }));
         }
-      } catch (err) {
+      } catch (_err) {
         res.writeHead(400);
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
       }
@@ -194,14 +207,17 @@ export class ClaudeWatchServer {
     if (request.is_ask_listed) {
       dangerInfo = elevateToMinimum(dangerInfo, 'HIGH');
     }
-    const { displayText, detail } = describeToolAction(request.tool_name, request.tool_input as Record<string, unknown>);
+    const { displayText, detail } = describeToolAction(
+      request.tool_name,
+      request.tool_input as Record<string, unknown>,
+    );
     const id = generateId();
 
     // Promise that resolves when user responds
     const responsePromise = new Promise<PermissionResponse>((resolve) => {
       // Timeout: auto-deny after 5 minutes
       const timer = setTimeout(() => {
-        const idx = this.queue.findIndex(i => i.id === id);
+        const idx = this.queue.findIndex((i) => i.id === id);
         if (idx !== -1) {
           this.queue[idx].resolve({ decision: 'deny' });
           this.queue.splice(idx, 1);
@@ -239,9 +255,7 @@ export class ClaudeWatchServer {
   }
 
   private handleNotification(request: NotificationRequest, res: http.ServerResponse): void {
-    const projectName = request.session_cwd
-      ? path.basename(request.session_cwd)
-      : undefined;
+    const projectName = request.session_cwd ? path.basename(request.session_cwd) : undefined;
 
     const data: NotificationPopupData = {
       message: request.message || '',
@@ -262,9 +276,7 @@ export class ClaudeWatchServer {
 
     const current = this.queue[0];
 
-    const projectName = current.request.session_cwd
-      ? path.basename(current.request.session_cwd)
-      : undefined;
+    const projectName = current.request.session_cwd ? path.basename(current.request.session_cwd) : undefined;
 
     const popupData: PopupData = {
       id: current.id,

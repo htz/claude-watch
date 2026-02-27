@@ -59,9 +59,7 @@ async function initTreeSitter() {
 
     // 開発時: node_modules/web-tree-sitter/tree-sitter-bash.wasm
     try {
-      candidates.push(
-        path.join(path.dirname(require.resolve('web-tree-sitter')), 'tree-sitter-bash.wasm')
-      );
+      candidates.push(path.join(path.dirname(require.resolve('web-tree-sitter')), 'tree-sitter-bash.wasm'));
     } catch {
       // require.resolve が失敗する場合 (パッケージ時)
     }
@@ -145,7 +143,7 @@ function readSettingsFile(filePath) {
  */
 function findProjectRoot(cwd) {
   let dir = cwd;
-  while (true) {
+  for (;;) {
     if (fs.existsSync(path.join(dir, '.claude'))) {
       return dir;
     }
@@ -261,7 +259,7 @@ function extractCommandsFromAST(rootNode) {
           hasUnresolvable = true;
         }
         // variable_assignment (FOO=bar cmd → cmd) を除去してコマンド部分のみ抽出
-        const hasAssignments = node.namedChildren.some(c => c.type === 'variable_assignment');
+        const hasAssignments = node.namedChildren.some((c) => c.type === 'variable_assignment');
         if (hasAssignments) {
           const parts = [];
           for (let i = 0; i < node.childCount; i++) {
@@ -277,8 +275,7 @@ function extractCommandsFromAST(rootNode) {
       } else {
         // コマンド名がない場合（純粋な変数代入 FOO=bar）はスキップ
         // ただし名前なしコマンドでも引数があれば（まれ）安全側に倒す
-        const hasArgs = node.namedChildCount > 0 &&
-          node.namedChildren.some(c => c.type !== 'variable_assignment');
+        const hasArgs = node.namedChildCount > 0 && node.namedChildren.some((c) => c.type !== 'variable_assignment');
         if (hasArgs) {
           commands.push(node.text);
         }
@@ -356,7 +353,7 @@ function matchesSingleCommand(command, patterns) {
     if (pattern.endsWith(':*')) {
       // Prefix match: "cat:*" matches "cat foo.txt"
       const prefix = pattern.slice(0, -2);
-      if (cmd === prefix || cmd.startsWith(prefix + ' ') || cmd.startsWith(prefix + '\t')) {
+      if (cmd === prefix || cmd.startsWith(`${prefix} `) || cmd.startsWith(`${prefix}\t`)) {
         return true;
       }
     } else if (pattern.includes('*')) {
@@ -367,7 +364,7 @@ function matchesSingleCommand(command, patterns) {
       }
     } else {
       // Exact match
-      if (cmd === pattern || cmd.startsWith(pattern + ' ')) {
+      if (cmd === pattern || cmd.startsWith(`${pattern} `)) {
         return true;
       }
     }
@@ -402,10 +399,10 @@ function matchesCommandPattern(command, patterns, mode) {
 
   if (mode === 'any') {
     // deny 用: いずれかがマッチすれば true
-    return commands.some(cmd => matchesSingleCommand(cmd, patterns));
+    return commands.some((cmd) => matchesSingleCommand(cmd, patterns));
   }
 
-  return commands.every(cmd => matchesSingleCommand(cmd, patterns));
+  return commands.every((cmd) => matchesSingleCommand(cmd, patterns));
 }
 
 /**
@@ -419,7 +416,7 @@ function extractUnmatchedCommands(command, allowPatterns) {
   const { commands, hasUnresolvable } = parseAndExtractCommands(command);
 
   // マッチしないサブコマンドを収集
-  const unmatched = commands.filter(cmd => !matchesSingleCommand(cmd, allowPatterns));
+  const unmatched = commands.filter((cmd) => !matchesSingleCommand(cmd, allowPatterns));
 
   return { unmatched, hasUnresolvable };
 }
@@ -454,23 +451,28 @@ function healthCheck() {
       return;
     }
 
-    const req = http.request({
-      socketPath: SOCKET_PATH,
-      path: '/health',
-      method: 'GET',
-      timeout: 2000,
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve(json.status === 'ok');
-        } catch {
-          resolve(false);
-        }
-      });
-    });
+    const req = http.request(
+      {
+        socketPath: SOCKET_PATH,
+        path: '/health',
+        method: 'GET',
+        timeout: 2000,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            resolve(json.status === 'ok');
+          } catch {
+            resolve(false);
+          }
+        });
+      },
+    );
 
     req.on('error', () => resolve(false));
     req.on('timeout', () => {
@@ -496,26 +498,31 @@ function requestPermission(toolName, toolInput, unmatchedCommands, isAskListed) 
     }
     const body = JSON.stringify(payload);
 
-    const req = http.request({
-      socketPath: SOCKET_PATH,
-      path: '/permission',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
+    const req = http.request(
+      {
+        socketPath: SOCKET_PATH,
+        path: '/permission',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: TIMEOUT_MS,
       },
-      timeout: TIMEOUT_MS,
-    }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          reject(new Error('Invalid response'));
-        }
-      });
-    });
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error('Invalid response'));
+          }
+        });
+      },
+    );
 
     req.on('error', (err) => reject(err));
     req.on('timeout', () => {
@@ -567,9 +574,10 @@ async function main() {
 
   // deny リスト → 即座に拒否 (ポップアップ不要)
   // 'any' モード: いずれかのサブコマンドが deny にマッチすれば拒否
-  const isDenied = toolName === 'Bash'
-    ? matchesCommandPattern(command, perms.deny.bashPatterns, 'any')
-    : matchesToolPattern(toolName, perms.deny.toolPatterns);
+  const isDenied =
+    toolName === 'Bash'
+      ? matchesCommandPattern(command, perms.deny.bashPatterns, 'any')
+      : matchesToolPattern(toolName, perms.deny.toolPatterns);
 
   if (isDenied) {
     const output = JSON.stringify({
@@ -583,16 +591,18 @@ async function main() {
   }
 
   // ask リストマッチ判定 (deny → ask → allow の順で評価)
-  const isAskListed = toolName === 'Bash'
-    ? matchesCommandPattern(command, perms.ask.bashPatterns, 'any')
-    : matchesToolPattern(toolName, perms.ask.toolPatterns);
+  const isAskListed =
+    toolName === 'Bash'
+      ? matchesCommandPattern(command, perms.ask.bashPatterns, 'any')
+      : matchesToolPattern(toolName, perms.ask.toolPatterns);
 
   // ask にマッチしなかった場合のみ allow を評価
   if (!isAskListed) {
     // allow リスト → exit(0) で Claude 本体にフォールスルー (ポップアップ不要)
-    const isAllowed = toolName === 'Bash'
-      ? matchesCommandPattern(command, perms.allow.bashPatterns)
-      : matchesToolPattern(toolName, perms.allow.toolPatterns);
+    const isAllowed =
+      toolName === 'Bash'
+        ? matchesCommandPattern(command, perms.allow.bashPatterns)
+        : matchesToolPattern(toolName, perms.allow.toolPatterns);
 
     if (isAllowed) process.exit(0);
   }
@@ -602,7 +612,7 @@ async function main() {
   // 未許可コマンド情報を算出 (Bash のみ)
   // 全サブコマンドが allow にマッチしていればポップアップ不要で自動許可
   // ただし ask にマッチしている場合は自動許可しない
-  let unmatchedCommands = undefined;
+  let unmatchedCommands;
   if (toolName === 'Bash' && command) {
     const { unmatched, hasUnresolvable } = extractUnmatchedCommands(command, perms.allow.bashPatterns);
     if (!isAskListed && unmatched.length === 0 && !hasUnresolvable) {
@@ -653,4 +663,17 @@ if (require.main === module) {
   main().catch(() => process.exit(0));
 }
 
-module.exports = { parsePermissionList, mergePermissionLists, findProjectRoot, loadPermissionSettings, matchesCommandPattern, matchesSingleCommand, matchesToolPattern, stripLeadingEnvVars, extractUnmatchedCommands, extractCommandsFromAST, parseAndExtractCommands, initTreeSitter };
+module.exports = {
+  parsePermissionList,
+  mergePermissionLists,
+  findProjectRoot,
+  loadPermissionSettings,
+  matchesCommandPattern,
+  matchesSingleCommand,
+  matchesToolPattern,
+  stripLeadingEnvVars,
+  extractUnmatchedCommands,
+  extractCommandsFromAST,
+  parseAndExtractCommands,
+  initTreeSitter,
+};

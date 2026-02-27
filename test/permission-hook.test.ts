@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
+import path from 'path';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // permission-hook.js は CommonJS なので require で読み込む
 const {
@@ -14,7 +14,6 @@ const {
   matchesToolPattern,
   stripLeadingEnvVars,
   extractUnmatchedCommands,
-  extractCommandsFromAST,
   parseAndExtractCommands,
   initTreeSitter,
 } = require('../src/hooks/permission-hook');
@@ -45,7 +44,7 @@ describe('parseAndExtractCommands', () => {
   it('should extract $() inner commands', () => {
     const result = parseAndExtractCommands('echo $(expr 1 + 1)');
     expect(result.commands).toContain('expr 1 + 1');
-    expect(result.commands.some(c => c.startsWith('echo'))).toBe(true);
+    expect(result.commands.some((c) => c.startsWith('echo'))).toBe(true);
     expect(result.hasUnresolvable).toBe(false);
   });
 
@@ -82,7 +81,7 @@ describe('parseAndExtractCommands', () => {
 
   it('should handle plain $VAR without extracting', () => {
     const result = parseAndExtractCommands('echo $HOME');
-    expect(result.commands.some(c => c.includes('echo'))).toBe(true);
+    expect(result.commands.some((c) => c.includes('echo'))).toBe(true);
     expect(result.hasUnresolvable).toBe(false);
   });
 
@@ -96,7 +95,7 @@ describe('parseAndExtractCommands', () => {
   it('should extract only inner command from VAR=$(cmd)', () => {
     const result = parseAndExtractCommands('MARKER=$(echo hi)');
     expect(result.commands).toEqual(['echo hi']);
-    expect(result.commands.some(c => c.includes('MARKER'))).toBe(false);
+    expect(result.commands.some((c) => c.includes('MARKER'))).toBe(false);
   });
 
   it('should strip leading env var prefix (FOO=bar cmd)', () => {
@@ -113,14 +112,14 @@ describe('parseAndExtractCommands', () => {
     const result = parseAndExtractCommands('MARKER=$(echo hi) && touch $MARKER');
     expect(result.commands).toContain('echo hi');
     expect(result.commands).toContain('touch $MARKER');
-    expect(result.commands.some(c => c === 'MARKER=' || c.startsWith('MARKER='))).toBe(false);
+    expect(result.commands.some((c) => c === 'MARKER=' || c.startsWith('MARKER='))).toBe(false);
   });
 
   it('should handle A=1 B=$(cmd) real_cmd correctly', () => {
     const result = parseAndExtractCommands('A=1 B=$(echo hi) real_cmd');
     expect(result.commands).toContain('echo hi');
     expect(result.commands).toContain('real_cmd');
-    expect(result.commands.some(c => c.includes('A=') || c.includes('B='))).toBe(false);
+    expect(result.commands.some((c) => c.includes('A=') || c.includes('B='))).toBe(false);
   });
 
   it('should skip export as declaration command', () => {
@@ -134,9 +133,9 @@ describe('parseAndExtractCommands', () => {
     const cmd = 'MARKER="/tmp/.test-$(echo -n "$(pwd)" | shasum | cut -c1-12)"';
     const result = parseAndExtractCommands(cmd);
     // 内部コマンドは抽出される
-    expect(result.commands.some(c => c.includes('pwd'))).toBe(true);
+    expect(result.commands.some((c) => c.includes('pwd'))).toBe(true);
     // 代入値がコマンドとして現れてはいけない
-    expect(result.commands.some(c => c.includes('MARKER='))).toBe(false);
+    expect(result.commands.some((c) => c.includes('MARKER='))).toBe(false);
   });
 
   // --- $(( )) 算術展開 ---
@@ -144,13 +143,13 @@ describe('parseAndExtractCommands', () => {
   it('should not treat $(( )) arithmetic as command substitution', () => {
     const result = parseAndExtractCommands('echo $((1+2))');
     // tree-sitter は $(()) を算術展開として認識し、コマンドとして抽出しない
-    expect(result.commands.some(c => c.includes('echo'))).toBe(true);
+    expect(result.commands.some((c) => c.includes('echo'))).toBe(true);
     expect(result.hasUnresolvable).toBe(false);
   });
 
   it('should handle $(( )) with operators around it', () => {
     const result = parseAndExtractCommands('echo $((x * 2)) && echo done');
-    expect(result.commands.some(c => c.includes('echo'))).toBe(true);
+    expect(result.commands.some((c) => c.includes('echo'))).toBe(true);
     expect(result.commands).toContain('echo done');
   });
 
@@ -161,7 +160,7 @@ describe('parseAndExtractCommands', () => {
 
   it('should handle $(( )) in pipe', () => {
     const result = parseAndExtractCommands('echo $((1+2)) | head');
-    expect(result.commands.some(c => c.includes('echo'))).toBe(true);
+    expect(result.commands.some((c) => c.includes('echo'))).toBe(true);
     expect(result.commands).toContain('head');
   });
 
@@ -206,7 +205,7 @@ describe('parseAndExtractCommands', () => {
 
   it('should handle node -e with method chaining and escaped quotes', () => {
     const result = parseAndExtractCommands(
-      'node -e "require(\\"fs\\").readdirSync(\\".\\").filter(f => f.endsWith(\\".ts\\")).forEach(f => console.log(f))"'
+      'node -e "require(\\"fs\\").readdirSync(\\".\\").filter(f => f.endsWith(\\".ts\\")).forEach(f => console.log(f))"',
     );
     expect(result.commands).toHaveLength(1);
     expect(result.commands[0]).toMatch(/^node/);
@@ -246,25 +245,26 @@ describe('parseAndExtractCommands', () => {
   });
 
   it('should handle array + for loop (real-world pattern)', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
     const cmd = 'files=("a.txt" "b.txt")\nfor f in "${files[@]}"; do\n  echo "$f"\ndone';
     const result = parseAndExtractCommands(cmd);
     // 配列定義はコマンドでない、for 内の echo のみ抽出
     expect(result.commands).toEqual(['echo "$f"']);
-    expect(result.commands.some(c => c.includes('a.txt') || c.includes('b.txt'))).toBe(false);
+    expect(result.commands.some((c) => c.includes('a.txt') || c.includes('b.txt'))).toBe(false);
   });
 
   // --- ヒアドキュメント ---
 
   it('should handle heredoc (only cat command extracted, body skipped)', () => {
     const result = parseAndExtractCommands("cat << 'EOF'\nhello world\nsome content\nEOF");
-    expect(result.commands.some(c => c.startsWith('cat'))).toBe(true);
+    expect(result.commands.some((c) => c.startsWith('cat'))).toBe(true);
     // ヒアドキュメント内のテキストがコマンドとして抽出されてはいけない
-    expect(result.commands.some(c => c.includes('hello world'))).toBe(false);
+    expect(result.commands.some((c) => c.includes('hello world'))).toBe(false);
   });
 
   it('should handle heredoc + following command', () => {
     const result = parseAndExtractCommands("cat << 'EOF'\nhello\nEOF\necho done");
-    expect(result.commands.some(c => c.startsWith('cat'))).toBe(true);
+    expect(result.commands.some((c) => c.startsWith('cat'))).toBe(true);
     expect(result.commands).toContain('echo done');
   });
 
@@ -277,7 +277,7 @@ describe('parseAndExtractCommands', () => {
     expect(result.commands).toHaveLength(1);
     expect(result.commands[0]).toMatch(/^echo/);
     // 内部にコマンド置換として 'safe' が抽出されていないこと
-    expect(result.commands.some(c => c === 'safe')).toBe(false);
+    expect(result.commands.some((c) => c === 'safe')).toBe(false);
   });
 
   // --- case 文 ---
@@ -293,7 +293,7 @@ describe('parseAndExtractCommands', () => {
 
   it('should extract command without redirect part', () => {
     const result = parseAndExtractCommands('echo hello > /tmp/out');
-    expect(result.commands.some(c => c.includes('echo'))).toBe(true);
+    expect(result.commands.some((c) => c.includes('echo'))).toBe(true);
     expect(result.hasUnresolvable).toBe(false);
   });
 });
@@ -694,13 +694,7 @@ describe('matchesToolPattern', () => {
 // ---------------------------------------------------------------------------
 describe('parsePermissionList', () => {
   it('should separate Bash patterns and tool patterns', () => {
-    const result = parsePermissionList([
-      'Bash(git:*)',
-      'Bash(npm test)',
-      'Edit',
-      'Write',
-      'mcp__notion__*',
-    ]);
+    const result = parsePermissionList(['Bash(git:*)', 'Bash(npm test)', 'Edit', 'Write', 'mcp__notion__*']);
     expect(result.bashPatterns).toEqual(['git:*', 'npm test']);
     expect(result.toolPatterns).toEqual(['Edit', 'Write', 'mcp__notion__*']);
   });
@@ -1009,7 +1003,7 @@ describe('extractUnmatchedCommands', () => {
     const cmd = 'MARKER="/tmp/foo" && touch $MARKER && rm -f $MARKER';
     const result = extractUnmatchedCommands(cmd, ['touch:*']);
     // MARKER= が未許可コマンドとして表示されてはいけない
-    expect(result.unmatched.some(c => c.includes('MARKER='))).toBe(false);
+    expect(result.unmatched.some((c) => c.includes('MARKER='))).toBe(false);
     expect(result.unmatched).toEqual(['rm -f $MARKER']);
   });
 
@@ -1017,14 +1011,14 @@ describe('extractUnmatchedCommands', () => {
     const cmd = 'RESULT=$(curl http://example.com) && echo $RESULT';
     const result = extractUnmatchedCommands(cmd, ['echo:*']);
     expect(result.unmatched).toEqual(['curl http://example.com']);
-    expect(result.unmatched.some(c => c.includes('RESULT='))).toBe(false);
+    expect(result.unmatched.some((c) => c.includes('RESULT='))).toBe(false);
   });
 
   it('should not treat multi-line quoted string contents as commands (node -e)', () => {
     const cmd = `node -e "\nconst a = 123\n"`;
     const result = extractUnmatchedCommands(cmd, ['node:*']);
     expect(result.unmatched).toEqual([]);
-    expect(result.unmatched.some(c => c.includes('const'))).toBe(false);
+    expect(result.unmatched.some((c) => c.includes('const'))).toBe(false);
   });
 
   it('should not treat multi-line quoted JS with destructuring as commands', () => {
@@ -1060,16 +1054,17 @@ describe('extractUnmatchedCommands', () => {
   // --- bash 配列定義（ファイルパスがコマンドとして表示されないこと）---
 
   it('should not show array elements as unmatched commands', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
     const cmd = 'files=("file1.txt" "file2.txt")\nfor f in "${files[@]}"; do\n  echo "$f"\ndone';
     const result = extractUnmatchedCommands(cmd, ['echo:*']);
     expect(result.unmatched).toEqual([]);
-    expect(result.unmatched.some(c => c.includes('file1.txt'))).toBe(false);
+    expect(result.unmatched.some((c) => c.includes('file1.txt'))).toBe(false);
   });
 
   it('should not show multi-line array elements as unmatched', () => {
     const cmd = 'declare -a files=(\n  "/path/to/file1"\n  "/path/to/file2"\n)\necho "processing"';
     const result = extractUnmatchedCommands(cmd, ['echo:*']);
     expect(result.unmatched).toEqual([]);
-    expect(result.unmatched.some(c => c.includes('/path/to'))).toBe(false);
+    expect(result.unmatched.some((c) => c.includes('/path/to'))).toBe(false);
   });
 });

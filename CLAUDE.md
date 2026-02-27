@@ -7,7 +7,9 @@ macOS メニューバー常駐の Electron アプリ。Claude Code のフック�
 - **Runtime**: Electron 33 + Node.js
 - **言語**: TypeScript (strict), フックスクリプトのみ CommonJS (.js)
 - **ビルド**: Electron Forge + Webpack
+- **Lint/Format**: Biome
 - **テスト**: Vitest
+- **CI**: GitHub Actions (push/PR → lint + 型チェック + テスト)
 - **パーサー**: web-tree-sitter + tree-sitter-bash (WASM, ABI 15)
 - **IPC**: Unix ドメインソケット (`~/.claude-watch/watch.sock`)
 
@@ -32,6 +34,9 @@ npm install         # 依存インストール (postinstall で WASM コピー�
 npm start           # 開発モードで起動
 npm test            # テスト実行
 npm run build       # TypeScript 型チェック (noEmit)
+npm run lint        # Biome lint & format チェック
+npm run lint:fix    # Biome lint & format 自動修正
+npm run format      # Biome フォーマットのみ自動修正
 npm run setup       # フック登録 (対話式)
 npm run setup -- --all    # 全フック一括登録
 npm run setup -- --remove # 全フック削除
@@ -102,10 +107,12 @@ npm run make        # DMG/ZIP 作成
 
 - **日本語**: UI テキスト、ツール説明、コメントは日本語
 - **型安全**: `strict: true`、any 禁止
+- **Lint/Format**: Biome (`biome.json`) — コミット前に `npm run lint` でチェック
 - **フックスクリプト**: CommonJS + 必ず exit code 0 (エラー時もフォールバック)
   - `permission-hook.js` のみ `web-tree-sitter` に依存 (WASM)
   - `notify-hook.js`, `stop-hook.js` は Node.js 標準モジュールのみ
 - **テスト**: `danger-level`、`tool-classifier`、`permission-hook` はパターン追加時に必ずテストも追加
+- **CI**: push / PR で自動実行 (`.github/workflows/ci.yml`) — lint → 型チェック → テスト
 - **shared/ の変更**: メインプロセス・フックスクリプト・テストに影響するため慎重に
 
 ## リリース手順

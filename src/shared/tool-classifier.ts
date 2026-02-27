@@ -23,7 +23,10 @@ const RULES: DescriptionRule[] = [
     describe: (_match, full) => {
       const recursive = /-([\w]*r[\w]*)/.test(full) || /-[\w]*R/.test(full);
       const force = /-([\w]*f[\w]*)/.test(full);
-      const targets = full.replace(/^rm\s+/, '').replace(/-[\w]+\s*/g, '').trim();
+      const targets = full
+        .replace(/^rm\s+/, '')
+        .replace(/-[\w]+\s*/g, '')
+        .trim();
       if (recursive && force) {
         return {
           summary: `${targets} を強制的に再帰削除`,
@@ -87,7 +90,8 @@ const RULES: DescriptionRule[] = [
       if (hard) {
         return {
           summary: '変更を強制リセット',
-          detail: 'ワーキングディレクトリとインデックスを指定のコミットに強制リセットします。未コミットの変更は失われます。',
+          detail:
+            'ワーキングディレクトリとインデックスを指定のコミットに強制リセットします。未コミットの変更は失われます。',
         };
       }
       return {
@@ -285,7 +289,7 @@ const RULES: DescriptionRule[] = [
       };
       return {
         summary: cmdNames[cmd] || `${cmd} を実行`,
-        detail: `${cmdNames[cmd] || cmd + ' コマンドを実行'}します。読み取り専用の安全なコマンドです。`,
+        detail: `${cmdNames[cmd] || `${cmd} コマンドを実行`}します。読み取り専用の安全なコマンドです。`,
       };
     },
   },
@@ -304,7 +308,7 @@ const RULES: DescriptionRule[] = [
       };
       return {
         summary: cmdNames[sub] || `git ${sub} を実行`,
-        detail: `${cmdNames[sub] || 'git ' + sub + ' コマンドを実行'}します。`,
+        detail: `${cmdNames[sub] || `git ${sub} コマンドを実行`}します。`,
       };
     },
   },
@@ -331,7 +335,7 @@ export function describeCommand(command: string): CommandDescription {
   if (/\|/.test(trimmed) && !/\|\|/.test(trimmed)) {
     const parts = trimmed.split(/\s*\|\s*/);
     if (parts.length >= 2) {
-      const descriptions = parts.map(p => describeCommand(p).summary);
+      const descriptions = parts.map((p) => describeCommand(p).summary);
       return {
         summary: descriptions.join(' → '),
         detail: `パイプラインで複数のコマンドを連結して実行します: ${descriptions.join(' → ')}`,
@@ -343,7 +347,7 @@ export function describeCommand(command: string): CommandDescription {
   if (/&&|;/.test(trimmed)) {
     const parts = trimmed.split(/\s*(?:&&|;)\s*/);
     if (parts.length >= 2) {
-      const descriptions = parts.map(p => describeCommand(p).summary);
+      const descriptions = parts.map((p) => describeCommand(p).summary);
       return {
         summary: descriptions.join('、その後 '),
         detail: `複数のコマンドを順次実行します: ${descriptions.join(' → ')}`,
@@ -406,8 +410,8 @@ function editPreview(toolInput: Record<string, unknown>): string {
 
   let preview = `📝 ${filePath}`;
   if (oldStr || newStr) {
-    const truncOld = oldStr.length > MAX ? oldStr.slice(0, MAX) + '…' : oldStr;
-    const truncNew = newStr.length > MAX ? newStr.slice(0, MAX) + '…' : newStr;
+    const truncOld = oldStr.length > MAX ? `${oldStr.slice(0, MAX)}…` : oldStr;
+    const truncNew = newStr.length > MAX ? `${newStr.slice(0, MAX)}…` : newStr;
     preview += `\n- ${truncOld}\n+ ${truncNew}`;
   }
   return preview;
@@ -424,10 +428,7 @@ function parseMcpToolName(toolName: string): { server: string; method: string } 
 /**
  * ツール種別に対応した説明・表示テキストを生成
  */
-export function describeToolAction(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-): ToolActionDescription {
+export function describeToolAction(toolName: string, toolInput: Record<string, unknown>): ToolActionDescription {
   switch (toolName) {
     case 'Bash': {
       const command = (toolInput.command as string) || '';
@@ -471,7 +472,7 @@ export function describeToolAction(
 
     case 'Task': {
       const prompt = (toolInput.prompt as string) || '';
-      const truncated = prompt.length > 100 ? prompt.slice(0, 100) + '…' : prompt;
+      const truncated = prompt.length > 100 ? `${prompt.slice(0, 100)}…` : prompt;
       return {
         displayText: '🤖 サブエージェント',
         detail: `サブエージェントを起動します: ${truncated}`,

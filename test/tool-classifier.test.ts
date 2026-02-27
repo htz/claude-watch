@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { describeCommand, classifyTool, describeToolAction } from '../src/shared/tool-classifier';
+import { describe, expect, it } from 'vitest';
+import { classifyTool, describeCommand, describeToolAction } from '../src/shared/tool-classifier';
 
 describe('describeCommand', () => {
   describe('rm commands', () => {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ClaudeWatchAPI, PopupData, NotificationPopupData } from '../shared/types';
+import type { ClaudeWatchAPI, NotificationPopupData, PopupData } from '../shared/types';
 
 const api: ClaudeWatchAPI = {
   onPermission: (callback: (data: PopupData) => void) => {

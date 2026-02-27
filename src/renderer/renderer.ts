@@ -1,5 +1,5 @@
 import './style.css';
-import type { PopupData, NotificationPopupData } from '../shared/types';
+import type { NotificationPopupData, PopupData } from '../shared/types';
 
 // DOM elements
 const permissionView = document.getElementById('permission-view')!;
@@ -33,8 +33,8 @@ interface TypeConfig {
 }
 
 const TYPE_CONFIG: Record<string, TypeConfig> = {
-  info:     { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: 'OK' },
-  stop:     { icon: '\u2705',       buttonColor: '#34c759', label: 'OK' },
+  info: { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: 'OK' },
+  stop: { icon: '\u2705', buttonColor: '#34c759', label: 'OK' },
   question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: '\u78BA\u8A8D' },
 };
 
@@ -130,7 +130,7 @@ function showPermissionView(data: PopupData): void {
 
   // Re-trigger animation
   permissionView.style.animation = 'none';
-  permissionView.offsetHeight; // Force reflow
+  void permissionView.offsetHeight; // Force reflow
   permissionView.style.animation = '';
 }
 
@@ -178,7 +178,7 @@ function showNotificationView(data: NotificationPopupData): void {
 
   // Re-trigger animation
   notificationView.style.animation = 'none';
-  notificationView.offsetHeight;
+  void notificationView.offsetHeight; // Force reflow
   notificationView.style.animation = '';
 }
 

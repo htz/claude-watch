@@ -1,4 +1,5 @@
-import { Tray, Menu, nativeImage, app } from 'electron';
+import { app, Menu, nativeImage, Tray } from 'electron';
+import fs from 'fs';
 import path from 'path';
 
 // Base64 埋め込みフォールバックアイコン (16x16 @1x)
@@ -89,7 +90,7 @@ export class TrayManager {
   /**
    * Tray アイコンの位置に基づいてポップアップの表示位置を計算
    */
-  getPopupPosition(windowWidth: number, windowHeight: number): { x: number; y: number } {
+  getPopupPosition(windowWidth: number, _windowHeight: number): { x: number; y: number } {
     if (!this.tray) {
       return { x: 0, y: 0 };
     }
@@ -171,7 +172,9 @@ export class TrayManager {
       }
 
       this.retryCount++;
-      console.warn(`[tray] Tray not visible (bounds=${JSON.stringify(bounds)}), retry ${this.retryCount}/${TRAY_MAX_RETRIES}`);
+      console.warn(
+        `[tray] Tray not visible (bounds=${JSON.stringify(bounds)}), retry ${this.retryCount}/${TRAY_MAX_RETRIES}`,
+      );
 
       // 既存の Tray を破棄して再作成（フォールバックアイコンを使用）
       this.setupTray(true);
@@ -189,7 +192,6 @@ export class TrayManager {
       path.join(__dirname, '..', '..', 'assets', 'IconTemplate.png'),
       path.join(process.cwd(), 'assets', 'IconTemplate.png'),
     ];
-    const fs = require('fs');
     for (const candidate of candidates) {
       if (fs.existsSync(candidate)) {
         return candidate;

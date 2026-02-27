@@ -1,4 +1,4 @@
-import type { DangerLevel, DangerInfo } from './types';
+import type { DangerInfo, DangerLevel } from './types';
 
 /** 危険度レベルごとの表示情報 */
 const DANGER_INFO_MAP: Record<DangerLevel, DangerInfo> = {
@@ -12,13 +12,13 @@ const DANGER_INFO_MAP: Record<DangerLevel, DangerInfo> = {
 /** CRITICAL: システムに致命的な損害を与えうるパターン */
 const CRITICAL_PATTERNS: RegExp[] = [
   /\bsudo\b/,
-  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?(-[a-zA-Z]*r[a-zA-Z]*\s+)?\//,  // rm -rf /
-  /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)?(-[a-zA-Z]*f[a-zA-Z]*\s+)?\//,  // rm -fr /
+  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?(-[a-zA-Z]*r[a-zA-Z]*\s+)?\//, // rm -rf /
+  /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)?(-[a-zA-Z]*f[a-zA-Z]*\s+)?\//, // rm -fr /
   /\bdd\b.*\bof=/,
   /\bmkfs\b/,
   /\bformat\b/,
   /\bchmod\s+(-R\s+)?777\s+\//,
-  /:\(\)\s*\{\s*:\|:\s*&\s*\}\s*;/,  // fork bomb
+  /:\(\)\s*\{\s*:\|:\s*&\s*\}\s*;/, // fork bomb
   />\s*\/dev\/sd[a-z]/,
   /\bsystemctl\s+(stop|disable|mask)/,
   /\blaunchctl\s+(unload|remove)/,
@@ -26,13 +26,13 @@ const CRITICAL_PATTERNS: RegExp[] = [
 
 /** HIGH: データ損失やリモート操作を伴うパターン */
 const HIGH_PATTERNS: RegExp[] = [
-  /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*)/,    // rm -r (recursive delete)
-  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*)/,    // rm -f (force delete)
+  /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*)/, // rm -r (recursive delete)
+  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*)/, // rm -f (force delete)
   /\bgit\s+push\b/,
   /\bgit\s+reset\s+--hard/,
   /\bgit\s+clean\s+-[a-zA-Z]*f/,
   /\bgit\s+checkout\s+\./,
-  /\bcurl\b.*\|\s*(bash|sh|zsh)/,       // curl | bash
+  /\bcurl\b.*\|\s*(bash|sh|zsh)/, // curl | bash
   /\bwget\b.*\|\s*(bash|sh|zsh)/,
   /\bcurl\b/,
   /\bwget\b/,
@@ -129,7 +129,7 @@ export function analyzeDangerLevel(command: string): DangerLevel {
   // パイプやセミコロンで区切られた複数コマンドの場合、最も危険なレベルを採用
   const parts = splitCommands(trimmed);
   if (parts.length > 1) {
-    const levels = parts.map(part => analyzeSingleCommand(part.trim()));
+    const levels = parts.map((part) => analyzeSingleCommand(part.trim()));
     return getHighestLevel(levels);
   }
 
@@ -220,10 +220,7 @@ export function elevateToMinimum(info: DangerInfo, minLevel: DangerLevel): Dange
  * ツール種別に対応した危険度判定
  * Bash は既存の analyzeCommand に委譲、その他はツール名から判定
  */
-export function analyzeToolDanger(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-): DangerInfo {
+export function analyzeToolDanger(toolName: string, toolInput: Record<string, unknown>): DangerInfo {
   if (toolName === 'Bash') {
     return analyzeCommand((toolInput.command as string) || '');
   }

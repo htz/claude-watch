@@ -14,9 +14,9 @@
  * No external dependencies - uses only the Node.js standard library.
  */
 
-const fs = require("fs");
-const path = require("path");
-const zlib = require("zlib");
+const fs = require('fs');
+const path = require('path');
+const zlib = require('zlib');
 
 // --- PNG primitives ---
 
@@ -32,7 +32,7 @@ function crc32(buf) {
 }
 
 function pngChunk(type, data) {
-  const typeBuffer = Buffer.from(type, "ascii");
+  const typeBuffer = Buffer.from(type, 'ascii');
   const length = Buffer.alloc(4);
   length.writeUInt32BE(data.length, 0);
 
@@ -49,8 +49,8 @@ function buildPNG(width, height, rgba) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;  // bit depth
-  ihdr[9] = 6;  // color type: RGBA
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type: RGBA
   ihdr[10] = 0; // compression
   ihdr[11] = 0; // filter
   ihdr[12] = 0; // interlace
@@ -73,9 +73,9 @@ function buildPNG(width, height, rgba) {
 
   return Buffer.concat([
     signature,
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", compressed),
-    pngChunk("IEND", Buffer.alloc(0)),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', compressed),
+    pngChunk('IEND', Buffer.alloc(0)),
   ]);
 }
 
@@ -141,7 +141,7 @@ function drawBell(size) {
 
   // Clapper (small circle below)
   const clapperR = s * 0.07;
-  const clapperCy = s * 0.80;
+  const clapperCy = s * 0.8;
   fillCircle(cx, clapperCy, clapperR);
 
   // Knob on top (tiny circle)
@@ -154,11 +154,11 @@ function drawBell(size) {
 
 // --- Main ---
 
-const assetsDir = path.resolve(__dirname, "..", "assets");
+const assetsDir = path.resolve(__dirname, '..', 'assets');
 
 const sizes = [
-  { file: "IconTemplate.png", size: 18 },
-  { file: "IconTemplate@2x.png", size: 36 },
+  { file: 'IconTemplate.png', size: 18 },
+  { file: 'IconTemplate@2x.png', size: 36 },
 ];
 
 for (const { file, size } of sizes) {
@@ -166,7 +166,7 @@ for (const { file, size } of sizes) {
   const png = buildPNG(size, size, rgba);
   const dest = path.join(assetsDir, file);
   fs.writeFileSync(dest, png);
-  console.log("Created " + dest + "  (" + size + "x" + size + ", " + png.length + " bytes)");
+  console.log(`Created ${dest}  (${size}x${size}, ${png.length} bytes)`);
 }
 
-console.log("\nDone.");
+console.log('\nDone.');

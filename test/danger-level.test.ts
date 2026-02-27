@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { analyzeDangerLevel, analyzeCommand, analyzeToolDanger, elevateToMinimum, getDangerInfo } from '../src/shared/danger-level';
+import { describe, expect, it } from 'vitest';
+import {
+  analyzeCommand,
+  analyzeDangerLevel,
+  analyzeToolDanger,
+  elevateToMinimum,
+  getDangerInfo,
+} from '../src/shared/danger-level';
 
 describe('analyzeDangerLevel', () => {
   describe('SAFE commands', () => {

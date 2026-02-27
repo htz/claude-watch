@@ -20,20 +20,23 @@ function sendNotification(message, title, type) {
   return new Promise((resolve) => {
     const body = JSON.stringify({ message, title, type, session_cwd: process.cwd() });
 
-    const req = http.request({
-      socketPath: SOCKET_PATH,
-      path: '/notification',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
+    const req = http.request(
+      {
+        socketPath: SOCKET_PATH,
+        path: '/notification',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: TIMEOUT_MS,
       },
-      timeout: TIMEOUT_MS,
-    }, (res) => {
-      // Consume response
-      res.on('data', () => {});
-      res.on('end', () => resolve());
-    });
+      (res) => {
+        // Consume response
+        res.on('data', () => {});
+        res.on('end', () => resolve());
+      },
+    );
 
     req.on('error', () => resolve());
     req.on('timeout', () => {
@@ -74,4 +77,6 @@ async function main() {
   await sendNotification(message, title, type);
 }
 
-main().catch(() => {}).finally(() => process.exit(0));
+main()
+  .catch(() => {})
+  .finally(() => process.exit(0));

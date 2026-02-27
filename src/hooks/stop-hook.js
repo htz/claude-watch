@@ -20,19 +20,22 @@ function sendNotification(message, title, type, session_cwd) {
   return new Promise((resolve) => {
     const body = JSON.stringify({ message, title, type, session_cwd });
 
-    const req = http.request({
-      socketPath: SOCKET_PATH,
-      path: '/notification',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
+    const req = http.request(
+      {
+        socketPath: SOCKET_PATH,
+        path: '/notification',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: TIMEOUT_MS,
       },
-      timeout: TIMEOUT_MS,
-    }, (res) => {
-      res.on('data', () => {});
-      res.on('end', () => resolve());
-    });
+      (res) => {
+        res.on('data', () => {});
+        res.on('end', () => resolve());
+      },
+    );
 
     req.on('error', () => resolve());
     req.on('timeout', () => {
@@ -62,11 +65,11 @@ async function main() {
     process.exit(0);
   }
 
-  const reason = data.stop_hook_active !== undefined
-    ? 'タスクが完了しました'
-    : 'Claude Code が停止しました';
+  const reason = data.stop_hook_active !== undefined ? 'タスクが完了しました' : 'Claude Code が停止しました';
 
   await sendNotification(reason, 'Claude Code', 'stop', process.cwd());
 }
 
-main().catch(() => {}).finally(() => process.exit(0));
+main()
+  .catch(() => {})
+  .finally(() => process.exit(0));

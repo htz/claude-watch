@@ -1,7 +1,7 @@
-import type { ForgeConfig } from '@electron-forge/shared-types';
-import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDMG } from '@electron-forge/maker-dmg';
+import { MakerZIP } from '@electron-forge/maker-zip';
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
+import type { ForgeConfig } from '@electron-forge/shared-types';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 
@@ -17,10 +17,7 @@ const config: ForgeConfig = {
     },
     extraResource: ['./src/hooks', './assets', './node_modules/web-tree-sitter'],
   },
-  makers: [
-    new MakerZIP({}, ['darwin']),
-    new MakerDMG({}),
-  ],
+  makers: [new MakerZIP({}, ['darwin']), new MakerDMG({})],
   plugins: [
     new WebpackPlugin({
       mainConfig,

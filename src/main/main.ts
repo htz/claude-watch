@@ -289,6 +289,10 @@ app.whenReady().then(async () => {
   trayManager.create({
     onQuit: () => {
       server.stop();
+      if (mainWindow) {
+        mainWindow.destroy();
+        mainWindow = null;
+      }
       app.quit();
     },
     onToggleLaunchAtLogin: (enabled: boolean) => {
@@ -354,6 +358,10 @@ app.on('before-quit', () => {
   globalShortcut.unregisterAll();
   if (server) {
     server.stop();
+  }
+  if (mainWindow) {
+    mainWindow.destroy();
+    mainWindow = null;
   }
   if (trayManager) {
     trayManager.destroy();

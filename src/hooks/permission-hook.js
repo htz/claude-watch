@@ -349,6 +349,43 @@ function extractCommandsFromAST(rootNode) {
 }
 
 /**
+ * AST ノードを再帰的に走査し、コマンドインジェクションに該当する
+ * 疑わしいノード型が含まれるかを判定する。
+ * Claude Code のコマンドインジェクション検知と同等のパターンを検出。
+ */
+function containsSuspiciousNode(node) {
+  const SUSPICIOUS_TYPES = [
+    'command_substitution', // $() or ``
+    'process_substitution', // >() or <()
+    'simple_expansion', // $var, $1, $@
+    'expansion', // ${var}
+  ];
+  if (SUSPICIOUS_TYPES.includes(node.type)) return true;
+  for (let i = 0; i < node.childCount; i++) {
+    if (containsSuspiciousNode(node.child(i))) return true;
+  }
+  return false;
+}
+
+/**
+ * コマンド文字列がコマンドインジェクションに該当する疑わしいパターンを含むかを判定する。
+ * tree-sitter が利用可能な場合は AST ベースで検知、
+ * 利用不可の場合は正規表現にフォールバック。
+ *
+ * @param {string} command - Bash コマンド文字列
+ * @returns {boolean}
+ */
+function hasSuspiciousPattern(command) {
+  const regexFallback = /\$\(|`[^`]*`|[<>]\(|\$[{@*#?!0-9]|\$[A-Za-z_]/;
+  if (!parser) {
+    return regexFallback.test(command);
+  }
+  const tree = parser.parse(command);
+  if (!tree) return regexFallback.test(command);
+  return containsSuspiciousNode(tree.rootNode);
+}
+
+/**
  * コマンド文字列をパースして全サブコマンドを抽出する。
  * parser が初期化されていない場合は入力をそのまま返す (graceful degradation)。
  *
@@ -472,6 +509,39 @@ function matchesToolPattern(toolName, toolPatterns) {
 }
 
 /**
+ * 通知を claude-watch アプリに送信する (fire-and-forget)。
+ * notify-hook.js と同じパターン。
+ */
+function sendNotification(message, title, type) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ message, title, type, session_cwd: process.cwd() });
+    const req = http.request(
+      {
+        socketPath: SOCKET_PATH,
+        path: '/notification',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        res.on('data', () => {});
+        res.on('end', () => resolve());
+      },
+    );
+    req.on('error', () => resolve());
+    req.on('timeout', () => {
+      req.destroy();
+      resolve();
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
  * Check if the claude-watch app is running.
  */
 function healthCheck() {
@@ -590,9 +660,6 @@ async function main() {
   const toolName = data.tool_name;
   const toolInput = data.tool_input || {};
 
-  // stdin の permission_mode で bypass 判定 (CLI --dangerously-skip-permissions 対応)
-  if (data.permission_mode === 'bypassPermissions') process.exit(0);
-
   // 読み取り専用ツールはポップアップ不要
   const SAFE_TOOLS = ['Read', 'Glob', 'Grep'];
   if (SAFE_TOOLS.includes(toolName)) {
@@ -602,15 +669,12 @@ async function main() {
   // settings.json の permissions (allow/deny/ask) を読み込み
   const perms = loadPermissionSettings();
 
-  // settings ファイルの bypassPermissions が有効な場合も全てスキップ
-  if (perms.bypassPermissions) process.exit(0);
-
   const command = toolName === 'Bash' ? (toolInput.command || '').trim() : '';
 
   // Bash: 空コマンドはスキップ
   if (toolName === 'Bash' && !command) process.exit(0);
 
-  // deny リスト → 即座に拒否 (ポップアップ不要)
+  // deny リスト → bypassPermissions でも拒否 (Claude Code 本家と同じ)
   // 'any' モード: いずれかのサブコマンドが deny にマッチすれば拒否
   const isDenied =
     toolName === 'Bash'
@@ -627,6 +691,13 @@ async function main() {
     process.stdout.write(output);
     process.exit(0);
   }
+
+  // deny チェック後に bypassPermissions を評価 (deny は常に優先)
+  // stdin の permission_mode で bypass 判定 (CLI --dangerously-skip-permissions 対応)
+  if (data.permission_mode === 'bypassPermissions') process.exit(0);
+
+  // settings ファイルの bypassPermissions が有効な場合も全てスキップ
+  if (perms.bypassPermissions) process.exit(0);
 
   // ask リストマッチ判定 (deny → ask → allow の順で評価)
   const isAskListed =
@@ -657,6 +728,16 @@ async function main() {
       process.exit(0);
     }
     unmatchedCommands = { commands: unmatched, hasUnresolvable };
+  }
+
+  // Claude Code のコマンドインジェクション検知に該当するパターン
+  // → ポップアップではなく通知 + フォールスルーで Claude Code に委譲
+  if (toolName === 'Bash' && command && hasSuspiciousPattern(command)) {
+    const appRunning = await healthCheck();
+    if (appRunning) {
+      await sendNotification('ターミナルで確認が必要です', 'Claude Code', 'info');
+    }
+    process.exit(0);
   }
 
   // Check if app is running
@@ -714,5 +795,7 @@ module.exports = {
   extractUnmatchedCommands,
   extractCommandsFromAST,
   parseAndExtractCommands,
+  containsSuspiciousNode,
+  hasSuspiciousPattern,
   initTreeSitter,
 };

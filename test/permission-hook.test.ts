@@ -16,6 +16,7 @@ const {
   stripLeadingEnvVars,
   extractUnmatchedCommands,
   parseAndExtractCommands,
+  hasSuspiciousPattern,
   initTreeSitter,
 } = require('../src/hooks/permission-hook');
 
@@ -1231,5 +1232,76 @@ describe('extractUnmatchedCommands', () => {
     const result = extractUnmatchedCommands(cmd, ['echo:*']);
     expect(result.unmatched).toEqual([]);
     expect(result.unmatched.some((c) => c.includes('/path/to'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasSuspiciousPattern — コマンドインジェクション検知パターン
+// ---------------------------------------------------------------------------
+describe('hasSuspiciousPattern', () => {
+  it('should detect $() command substitution', () => {
+    expect(hasSuspiciousPattern('echo $(whoami)')).toBe(true);
+  });
+
+  it('should detect backtick command substitution', () => {
+    expect(hasSuspiciousPattern('echo `whoami`')).toBe(true);
+  });
+
+  it('should detect process substitution >()', () => {
+    expect(hasSuspiciousPattern('tee >(cat)')).toBe(true);
+  });
+
+  it('should detect process substitution <()', () => {
+    expect(hasSuspiciousPattern('diff <(echo a) <(echo b)')).toBe(true);
+  });
+
+  it('should detect $1 positional parameter', () => {
+    expect(hasSuspiciousPattern('echo $1')).toBe(true);
+  });
+
+  it('should detect $@ special variable', () => {
+    expect(hasSuspiciousPattern('echo $@')).toBe(true);
+  });
+
+  it('should detect $* special variable', () => {
+    expect(hasSuspiciousPattern('echo $*')).toBe(true);
+  });
+
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test description
+  it('should detect ${var} expansion', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
+    expect(hasSuspiciousPattern('echo ${HOME}')).toBe(true);
+  });
+
+  it('should detect $VAR simple expansion', () => {
+    expect(hasSuspiciousPattern('echo $HOME')).toBe(true);
+  });
+
+  it('should return false for normal command without suspicious patterns', () => {
+    expect(hasSuspiciousPattern('git status')).toBe(false);
+  });
+
+  it('should return false for simple command with arguments', () => {
+    expect(hasSuspiciousPattern('ls -la /tmp')).toBe(false);
+  });
+
+  it('should return false for piped commands without expansion', () => {
+    expect(hasSuspiciousPattern('cat file.txt | grep pattern')).toBe(false);
+  });
+
+  it('should return false for $() inside single quotes (literal)', () => {
+    expect(hasSuspiciousPattern("echo '$(whoami)'")).toBe(false);
+  });
+
+  it('should detect $() in double quotes', () => {
+    expect(hasSuspiciousPattern('echo "$(whoami)"')).toBe(true);
+  });
+
+  it('should detect nested $() inside command', () => {
+    expect(hasSuspiciousPattern('git log --format=$(echo format)')).toBe(true);
+  });
+
+  it('should return false for chained simple commands', () => {
+    expect(hasSuspiciousPattern('git add . && git commit -m "test"')).toBe(false);
   });
 });

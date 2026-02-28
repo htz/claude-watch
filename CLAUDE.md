@@ -78,13 +78,15 @@ npm run make        # DMG/ZIP 作成
   - `permissions.defaultMode: "bypassPermissions"` (Claude Code 本家準拠)
   - トップレベル `bypassPermissions: true` (後方互換)
   - settings ファイルからはグローバル設定・プロジェクトローカル設定のみ有効 (Git 管理のプロジェクト設定からは無視)
-  - 有効時は全てのポップアップをスキップし `exit(0)` で Claude 本体にフォールスルー
-- **判定フロー** (deny → ask → allow の順、Claude 本体と同じ):
+  - 有効時は deny 以外の全てのポップアップをスキップし `exit(0)` で Claude 本体にフォールスルー
+- **判定フロー** (deny → bypassPermissions → ask → allow → suspicious → popup の順):
+  - `deny` リストにマッチ → 即座に `permissionDecision: 'deny'` (bypassPermissions でも拒否)
   - stdin `permission_mode === "bypassPermissions"` → `exit(0)` (CLI フラグ由来)
   - settings ファイルの `bypassPermissions` 有効 → `exit(0)` で Claude 本体にフォールスルー (全スキップ)
-  - `deny` リストにマッチ → 即座に `permissionDecision: 'deny'` (ポップアップなし)
   - `ask` リストにマッチ → ノーティファイアのポップアップを表示 (危険度は最低 HIGH に引き上げ)
   - `allow` リストにマッチ → `exit(0)` で Claude 本体にフォールスルー (ポップアップなし)
+  - **コマンドインジェクション検知パターン** (`$()`, `` ` ` ``, `>()`, `<()`, `$var`, `${var}` 等) →
+    「ターミナルで確認が必要です」通知を送り `exit(0)` で Claude Code に委譲 (ポップアップなし)
   - 未登録 → ノーティファイアのポップアップを表示
 - Bash コマンドは `Bash(git:*)` 形式、非 Bash ツールは `Edit` / `mcp__notion__*` 形式で照合
 

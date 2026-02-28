@@ -1,7 +1,7 @@
 {
   "name": "claude-watch",
   "productName": "Claude Watch",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "macOS menu bar app for Claude Code permission notifications",
   "main": ".webpack/main",
   "scripts": {

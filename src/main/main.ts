@@ -1,6 +1,8 @@
 import type { Locale } from '@i18n';
 import { setLocale } from '@i18n';
 import { app, BrowserWindow, globalShortcut, ipcMain, session } from 'electron';
+import fs from 'fs';
+import { CONFIG_PATH, SOCKET_DIR } from '../shared/constants';
 import type { NotificationPopupData, PopupData } from '../shared/types';
 import { ClaudeWatchServer } from './server';
 import { TrayManager } from './tray';
@@ -269,9 +271,16 @@ function showNextNotificationOrHide(): void {
 }
 
 app.whenReady().then(async () => {
-  // ロケール初期化
-  const appLocale = app.getLocale();
-  const locale: Locale = appLocale.startsWith('ja') ? 'ja' : 'en';
+  // ロケール初期化（保存済み設定 → OS ロケールの順でフォールバック）
+  let locale: Locale;
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
+    const config: unknown = JSON.parse(raw);
+    const saved = (config as Record<string, unknown>).locale;
+    locale = saved === 'ja' || saved === 'en' ? saved : app.getLocale().startsWith('ja') ? 'ja' : 'en';
+  } catch {
+    locale = app.getLocale().startsWith('ja') ? 'ja' : 'en';
+  }
   setLocale(locale);
 
   // Content Security Policy（開発時は webpack dev server 用に緩和）
@@ -310,6 +319,13 @@ app.whenReady().then(async () => {
       trayManager.updateLocale(newLocale);
       if (mainWindow) {
         mainWindow.webContents.send('locale-changed', newLocale);
+      }
+      // 設定をディスクに永続化
+      try {
+        fs.mkdirSync(SOCKET_DIR, { recursive: true });
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify({ locale: newLocale }), 'utf-8');
+      } catch {
+        // 書き込み失敗は無視（次回起動時に OS ロケールにフォールバック）
       }
     },
     onClick: () => {

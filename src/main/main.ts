@@ -276,7 +276,7 @@ app.whenReady().then(async () => {
 
   // Content Security Policy（開発時は webpack dev server 用に緩和）
   const csp = app.isPackaged
-    ? "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'"
+    ? "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'"
     : "default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' ws:";
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

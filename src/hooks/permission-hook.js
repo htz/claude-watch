@@ -261,9 +261,74 @@ function loadPermissionSettings(cwd) {
  * コマンド行先頭の環境変数代入 (VAR=value) を除去して実際のコマンドを返す。
  * 対応形式: VAR=val, VAR="val", VAR='val', 複数連続 (A=1 B=2 cmd)
  * 純粋な変数代入のみの行 (コマンドなし) は空文字を返す。
+ *
+ * O(n) イテレーティブ実装 — 正規表現の ReDoS リスクを回避。
  */
 function stripLeadingEnvVars(command) {
-  return command.replace(/^(?:\w+=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)\s+)+/, '');
+  const len = command.length;
+  let pos = 0;
+
+  while (pos < len) {
+    // 変数名: \w+ に相当 ([A-Za-z0-9_]+)
+    const nameStart = pos;
+    while (pos < len && isWordChar(command.charCodeAt(pos))) {
+      pos++;
+    }
+    // 変数名が空、または次が '=' でなければ代入ではない → ここまで戻る
+    if (pos === nameStart || pos >= len || command[pos] !== '=') {
+      pos = nameStart;
+      break;
+    }
+    pos++; // skip '='
+
+    // 値部分をスキップ
+    if (pos < len && command[pos] === "'") {
+      // シングルクォート: 次の ' まで
+      pos++; // skip opening '
+      while (pos < len && command[pos] !== "'") {
+        pos++;
+      }
+      if (pos < len) pos++; // skip closing '
+    } else if (pos < len && command[pos] === '"') {
+      // ダブルクォート: バックスラッシュエスケープを考慮
+      pos++; // skip opening "
+      while (pos < len && command[pos] !== '"') {
+        if (command[pos] === '\\' && pos + 1 < len) {
+          pos += 2; // skip escaped char
+        } else {
+          pos++;
+        }
+      }
+      if (pos < len) pos++; // skip closing "
+    } else {
+      // 非クォート: 次の空白まで
+      while (pos < len && command[pos] !== ' ' && command[pos] !== '\t') {
+        pos++;
+      }
+    }
+
+    // 代入の直後に空白がなければ後続コマンドがない → 元の文字列を返す
+    if (pos >= len || (command[pos] !== ' ' && command[pos] !== '\t')) {
+      return command;
+    }
+
+    // 空白をスキップして次のトークンへ
+    while (pos < len && (command[pos] === ' ' || command[pos] === '\t')) {
+      pos++;
+    }
+  }
+
+  return command.slice(pos);
+}
+
+/** [A-Za-z0-9_] 判定 */
+function isWordChar(code) {
+  return (
+    (code >= 0x30 && code <= 0x39) || // 0-9
+    (code >= 0x41 && code <= 0x5a) || // A-Z
+    (code >= 0x61 && code <= 0x7a) || // a-z
+    code === 0x5f // _
+  );
 }
 
 /**

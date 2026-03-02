@@ -2,7 +2,34 @@
 
 Claude Code のツール実行時に macOS メニューバーからパーミッション確認ポップアップと通知を表示する Electron アプリ。
 
-![macOS menu bar](assets/IconTemplate@2x.png)
+## スクリーンショット
+
+### パーミッション確認ポップアップ
+
+Claude Code がツールを実行する前に、危険度に応じた色分けバッジ付きのポップアップを表示します。
+
+| 安全なコマンド | 危険なコマンド | 最高危険度 (キュー表示) |
+|:---:|:---:|:---:|
+| ![SAFE](assets/screenshots/permission-safe.png) | ![HIGH](assets/screenshots/permission-high.png) | ![CRITICAL](assets/screenshots/permission-critical.png) |
+| `git status` など読み取り専用コマンド | `rm -rf` など破壊的コマンド | `sudo` 付きコマンド、待機件数バッジ |
+
+### 非 Bash ツール
+
+Bash 以外のツール (`Edit`, `Write`, `WebFetch`, `MCP` など) にも対応しています。
+
+| Edit ツール |
+|:---:|
+| ![Edit](assets/screenshots/permission-edit.png) |
+| ファイル編集の確認 |
+
+### 通知
+
+タスク完了や入力待ちをリアルタイムで通知します。
+
+| タスク完了 | 入力待ち |
+|:---:|:---:|
+| ![Stop](assets/screenshots/notification-stop.png) | ![Question](assets/screenshots/notification-question.png) |
+| Stop フックによる完了通知 (自動消去) | Question 通知 (手動で閉じるまで表示) |
 
 ## 特徴
 

@@ -27,6 +27,19 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// i18n: 開発時は src/i18n、パッケージ時は Resources/i18n から解決
+let i18n;
+try {
+  i18n = require(path.join(__dirname, '..', 'i18n', 'index.cjs'));
+} catch {
+  try {
+    i18n = require(path.join(__dirname, '..', '..', 'i18n', 'index.cjs'));
+  } catch {
+    i18n = { t: (key) => key };
+  }
+}
+const { t } = i18n;
+
 // web-tree-sitter: 開発時は node_modules、パッケージ時は extraResource から解決
 // v0.25 は package.json に main がなく exports のみのため、
 // パッケージ時は tree-sitter.cjs を直接指定する必要がある
@@ -685,7 +698,7 @@ async function main() {
     const output = JSON.stringify({
       hookSpecificOutput: {
         permissionDecision: 'deny',
-        reason: 'settings.json の deny リストに含まれています',
+        reason: t('hook.denyReason'),
       },
     });
     process.stdout.write(output);
@@ -735,7 +748,7 @@ async function main() {
   if (toolName === 'Bash' && command && hasSuspiciousPattern(command)) {
     const appRunning = await healthCheck();
     if (appRunning) {
-      await sendNotification('ターミナルで確認が必要です', 'Claude Code', 'info');
+      await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
     }
     process.exit(0);
   }
@@ -766,7 +779,7 @@ async function main() {
       const output = JSON.stringify({
         hookSpecificOutput: {
           permissionDecision: 'deny',
-          reason: 'ユーザーが拒否しました',
+          reason: t('hook.userDenied'),
         },
       });
       process.stdout.write(output, () => process.exit(0));

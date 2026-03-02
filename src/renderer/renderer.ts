@@ -1,5 +1,13 @@
 import './style.css';
+import type { Locale, TranslationKey } from '@i18n';
+import { setLocale, t } from '@i18n';
 import type { NotificationPopupData, PopupData } from '../shared/types';
+
+// ロケール検出・設定
+const lang = navigator.language || '';
+const locale: Locale = lang.startsWith('ja') ? 'ja' : 'en';
+setLocale(locale);
+document.documentElement.lang = locale;
 
 // DOM elements
 const permissionView = document.getElementById('permission-view')!;
@@ -25,6 +33,19 @@ const btnOk = document.getElementById('btn-ok')!;
 
 let currentRequestId: string | null = null;
 
+// data-i18n 属性を持つ要素のテキストを一括設定
+function applyLocale(): void {
+  const elements = document.querySelectorAll('[data-i18n]');
+  for (const el of elements) {
+    const key = el.getAttribute('data-i18n') as TranslationKey;
+    if (key) {
+      el.textContent = t(key);
+    }
+  }
+}
+
+applyLocale();
+
 // Type config: icon, button color, button label
 interface TypeConfig {
   icon: string;
@@ -33,9 +54,9 @@ interface TypeConfig {
 }
 
 const TYPE_CONFIG: Record<string, TypeConfig> = {
-  info: { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: 'OK' },
-  stop: { icon: '\u2705', buttonColor: '#34c759', label: 'OK' },
-  question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: '\u78BA\u8A8D' },
+  info: { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: t('ui.ok') },
+  stop: { icon: '\u2705', buttonColor: '#34c759', label: t('ui.ok') },
+  question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: t('ui.confirm') },
 };
 
 function renderUnmatchedCommands(data: PopupData): void {
@@ -75,7 +96,7 @@ function renderUnmatchedCommands(data: PopupData): void {
   if (info.hasUnresolvable) {
     const note = document.createElement('span');
     note.className = 'unmatched-note';
-    note.textContent = '+ 動的に生成されるコマンド';
+    note.textContent = t('ui.dynamicCommands');
     unmatchedChips.appendChild(note);
   }
 
@@ -110,7 +131,7 @@ function showPermissionView(data: PopupData): void {
 
   // Queue badge
   if (data.queueCount > 0) {
-    queueBadge.textContent = `+${data.queueCount} 件待機中`;
+    queueBadge.textContent = t('ui.queueBadge', { count: data.queueCount });
     queueBadge.classList.remove('hidden');
   } else {
     queueBadge.classList.add('hidden');
@@ -170,7 +191,7 @@ function showNotificationView(data: NotificationPopupData): void {
 
   // Queue badge
   if (data.queueCount > 0) {
-    notificationQueueBadge.textContent = `+${data.queueCount} 件待機中`;
+    notificationQueueBadge.textContent = t('ui.queueBadge', { count: data.queueCount });
     notificationQueueBadge.classList.remove('hidden');
   } else {
     notificationQueueBadge.classList.add('hidden');
@@ -237,7 +258,7 @@ window.claudeWatchAPI.onPermission(showPermissionView);
 window.claudeWatchAPI.onNotification(showNotificationView);
 window.claudeWatchAPI.onQueueUpdate((count: number) => {
   if (count > 0) {
-    notificationQueueBadge.textContent = `+${count} 件待機中`;
+    notificationQueueBadge.textContent = t('ui.queueBadge', { count });
     notificationQueueBadge.classList.remove('hidden');
   } else {
     notificationQueueBadge.classList.add('hidden');

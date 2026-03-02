@@ -1,13 +1,16 @@
 /**
- * ツール種別分類 + 日本語説明生成
+ * ツール種別分類 + ローカライズ説明生成
  *
- * Bash コマンドを解析し、処理内容を日本語で説明する。
+ * Bash コマンドを解析し、処理内容を説明する。
  */
 
+import type { TranslationKey } from '@i18n';
+import { t } from '@i18n';
+
 interface CommandDescription {
-  /** コマンドの短い日本語説明 */
+  /** コマンドの短い説明 */
   summary: string;
-  /** コマンドの詳細な日本語説明 */
+  /** コマンドの詳細な説明 */
   detail: string;
 }
 
@@ -15,6 +18,44 @@ interface DescriptionRule {
   pattern: RegExp;
   describe: (match: RegExpMatchArray, full: string) => CommandDescription;
 }
+
+/** safe コマンド名から翻訳キーへのマッピング */
+const SAFE_CMD_KEYS: Record<string, TranslationKey> = {
+  ls: 'cmd.safe.ls',
+  cat: 'cmd.safe.cat',
+  head: 'cmd.safe.head',
+  tail: 'cmd.safe.tail',
+  echo: 'cmd.safe.echo',
+  pwd: 'cmd.safe.pwd',
+  which: 'cmd.safe.which',
+  whoami: 'cmd.safe.whoami',
+  date: 'cmd.safe.date',
+  env: 'cmd.safe.env',
+  printenv: 'cmd.safe.printenv',
+};
+
+/** git 読み取りコマンドから翻訳キーへのマッピング */
+const GIT_READ_CMD_KEYS: Record<string, TranslationKey> = {
+  status: 'cmd.git.status',
+  log: 'cmd.git.log',
+  diff: 'cmd.git.diff',
+  show: 'cmd.git.show',
+  branch: 'cmd.git.branch',
+  remote: 'cmd.git.remote',
+};
+
+/** classifyTool で使用するツール名から翻訳キーへのマッピング */
+const TOOL_CLASSIFY_KEYS: Record<string, TranslationKey> = {
+  Bash: 'tool.classify.Bash',
+  Read: 'tool.classify.Read',
+  Write: 'tool.classify.Write',
+  Edit: 'tool.classify.Edit',
+  Glob: 'tool.classify.Glob',
+  Grep: 'tool.classify.Grep',
+  WebFetch: 'tool.classify.WebFetch',
+  Task: 'tool.classify.Task',
+  NotebookEdit: 'tool.classify.NotebookEdit',
+};
 
 const RULES: DescriptionRule[] = [
   // rm
@@ -29,19 +70,19 @@ const RULES: DescriptionRule[] = [
         .trim();
       if (recursive && force) {
         return {
-          summary: `${targets} を強制的に再帰削除`,
-          detail: `${targets} とその中身を再帰的に強制削除します。この操作は元に戻せません。`,
+          summary: t('cmd.rm.forceRecursive.summary', { targets }),
+          detail: t('cmd.rm.forceRecursive.detail', { targets }),
         };
       }
       if (recursive) {
         return {
-          summary: `${targets} を再帰削除`,
-          detail: `${targets} ディレクトリとその中身を再帰的に削除します。`,
+          summary: t('cmd.rm.recursive.summary', { targets }),
+          detail: t('cmd.rm.recursive.detail', { targets }),
         };
       }
       return {
-        summary: `${targets} を削除`,
-        detail: `ファイル ${targets} を削除します。`,
+        summary: t('cmd.rm.simple.summary', { targets }),
+        detail: t('cmd.rm.simple.detail', { targets }),
       };
     },
   },
@@ -51,16 +92,16 @@ const RULES: DescriptionRule[] = [
     describe: (match) => {
       const args = (match[1] || '').trim();
       const force = /--force|-f/.test(args);
-      const target = args.replace(/--force|-f/g, '').trim() || 'デフォルトのリモート';
+      const target = args.replace(/--force|-f/g, '').trim() || t('cmd.git.push.defaultRemote');
       if (force) {
         return {
-          summary: `${target} に強制プッシュ`,
-          detail: `ローカルの変更をリモートリポジトリ (${target}) に強制プッシュします。リモートの履歴が上書きされます。`,
+          summary: t('cmd.git.push.force.summary', { target }),
+          detail: t('cmd.git.push.force.detail', { target }),
         };
       }
       return {
-        summary: `${target} にプッシュ`,
-        detail: `ローカルの変更をリモートリポジトリ (${target}) にプッシュします。`,
+        summary: t('cmd.git.push.summary', { target }),
+        detail: t('cmd.git.push.detail', { target }),
       };
     },
   },
@@ -72,13 +113,13 @@ const RULES: DescriptionRule[] = [
       const amend = /--amend/.test(args);
       if (amend) {
         return {
-          summary: '直前のコミットを修正',
-          detail: '直前のコミットを修正 (amend) します。コミットメッセージや内容が変更されます。',
+          summary: t('cmd.git.commit.amend.summary'),
+          detail: t('cmd.git.commit.amend.detail'),
         };
       }
       return {
-        summary: '変更をコミット',
-        detail: 'ステージ済みの変更を新しいコミットとして記録します。',
+        summary: t('cmd.git.commit.summary'),
+        detail: t('cmd.git.commit.detail'),
       };
     },
   },
@@ -89,14 +130,13 @@ const RULES: DescriptionRule[] = [
       const hard = /--hard/.test(full);
       if (hard) {
         return {
-          summary: '変更を強制リセット',
-          detail:
-            'ワーキングディレクトリとインデックスを指定のコミットに強制リセットします。未コミットの変更は失われます。',
+          summary: t('cmd.git.reset.hard.summary'),
+          detail: t('cmd.git.reset.hard.detail'),
         };
       }
       return {
-        summary: '変更をリセット',
-        detail: 'インデックスを指定のコミットにリセットします。ワーキングディレクトリの変更は保持されます。',
+        summary: t('cmd.git.reset.summary'),
+        detail: t('cmd.git.reset.detail'),
       };
     },
   },
@@ -108,13 +148,13 @@ const RULES: DescriptionRule[] = [
       const target = match[2].trim();
       if (newBranch) {
         return {
-          summary: `新しいブランチ ${target} を作成`,
-          detail: `新しいブランチ ${target} を作成して切り替えます。`,
+          summary: t('cmd.git.checkout.newBranch.summary', { target }),
+          detail: t('cmd.git.checkout.newBranch.detail', { target }),
         };
       }
       return {
-        summary: `${target} に切り替え`,
-        detail: `ブランチまたはコミット ${target} に切り替えます。`,
+        summary: t('cmd.git.checkout.summary', { target }),
+        detail: t('cmd.git.checkout.detail', { target }),
       };
     },
   },
@@ -127,19 +167,19 @@ const RULES: DescriptionRule[] = [
       const pkg = args.replace(/-[\w-]+(=\S+)?/g, '').trim();
       if (sub === 'ci') {
         return {
-          summary: 'クリーンインストール実行',
-          detail: 'node_modules を削除し、package-lock.json に従って依存関係をクリーンインストールします。',
+          summary: t('cmd.npm.ci.summary'),
+          detail: t('cmd.npm.ci.detail'),
         };
       }
       if (pkg) {
         return {
-          summary: `${pkg} をインストール`,
-          detail: `npm パッケージ ${pkg} をインストールします。`,
+          summary: t('cmd.npm.installPkg.summary', { pkg }),
+          detail: t('cmd.npm.installPkg.detail', { pkg }),
         };
       }
       return {
-        summary: '依存関係をインストール',
-        detail: 'package.json に記載された依存関係をインストールします。',
+        summary: t('cmd.npm.install.summary'),
+        detail: t('cmd.npm.install.detail'),
       };
     },
   },
@@ -149,8 +189,8 @@ const RULES: DescriptionRule[] = [
     describe: (match) => {
       const script = match[2];
       return {
-        summary: `npm スクリプト "${script}" を実行`,
-        detail: `package.json の scripts に定義された "${script}" を実行します。`,
+        summary: t('cmd.npm.run.summary', { script }),
+        detail: t('cmd.npm.run.detail', { script }),
       };
     },
   },
@@ -161,17 +201,17 @@ const RULES: DescriptionRule[] = [
       const cmd = match[1];
       const args = match[2];
       const urlMatch = args.match(/(https?:\/\/[^\s"']+)/);
-      const url = urlMatch ? urlMatch[1] : '指定された URL';
+      const url = urlMatch ? urlMatch[1] : t('cmd.fetch.defaultUrl');
       const piped = /\|\s*(bash|sh|zsh)/.test(args);
       if (piped) {
         return {
-          summary: `${url} からスクリプトをダウンロード・実行`,
-          detail: `${cmd} で ${url} からスクリプトをダウンロードし、シェルで直接実行します。信頼できないソースからの実行は危険です。`,
+          summary: t('cmd.fetch.piped.summary', { url }),
+          detail: t('cmd.fetch.piped.detail', { cmd, url }),
         };
       }
       return {
-        summary: `${url} にアクセス`,
-        detail: `${cmd} で ${url} にネットワークリクエストを送信します。`,
+        summary: t('cmd.fetch.summary', { url }),
+        detail: t('cmd.fetch.detail', { cmd, url }),
       };
     },
   },
@@ -182,8 +222,8 @@ const RULES: DescriptionRule[] = [
       const innerCmd = match[1].trim();
       const inner = describeCommand(innerCmd);
       return {
-        summary: `管理者権限で: ${inner.summary}`,
-        detail: `管理者権限 (sudo) で以下を実行します: ${inner.detail} システム設定が変更される可能性があります。`,
+        summary: t('cmd.sudo.summary', { inner: inner.summary }),
+        detail: t('cmd.sudo.detail', { innerDetail: inner.detail }),
       };
     },
   },
@@ -195,8 +235,8 @@ const RULES: DescriptionRule[] = [
       const script = match[2].split(/\s/)[0];
       const runtimeName = runtime.startsWith('python') ? 'Python' : 'Node.js';
       return {
-        summary: `${runtimeName} で ${script} を実行`,
-        detail: `${runtimeName} ランタイムでスクリプト ${script} を実行します。`,
+        summary: t('cmd.runtime.summary', { runtime: runtimeName, script }),
+        detail: t('cmd.runtime.detail', { runtime: runtimeName, script }),
       };
     },
   },
@@ -206,8 +246,8 @@ const RULES: DescriptionRule[] = [
     describe: (match) => {
       const dir = match[1].replace(/-p\s*/, '').trim();
       return {
-        summary: `ディレクトリ ${dir} を作成`,
-        detail: `ディレクトリ ${dir} を作成します。`,
+        summary: t('cmd.mkdir.summary', { dir }),
+        detail: t('cmd.mkdir.detail', { dir }),
       };
     },
   },
@@ -218,8 +258,8 @@ const RULES: DescriptionRule[] = [
       const src = match[1].trim();
       const dst = match[2].trim();
       return {
-        summary: `${src} を ${dst} に移動/名前変更`,
-        detail: `${src} を ${dst} に移動または名前変更します。`,
+        summary: t('cmd.mv.summary', { src, dst }),
+        detail: t('cmd.mv.detail', { src, dst }),
       };
     },
   },
@@ -230,8 +270,8 @@ const RULES: DescriptionRule[] = [
       const src = match[1].replace(/-[a-zA-Z]+\s*/g, '').trim();
       const dst = match[2].trim();
       return {
-        summary: `${src} を ${dst} にコピー`,
-        detail: `${src} を ${dst} にコピーします。`,
+        summary: t('cmd.cp.summary', { src, dst }),
+        detail: t('cmd.cp.detail', { src, dst }),
       };
     },
   },
@@ -241,8 +281,8 @@ const RULES: DescriptionRule[] = [
     describe: (match) => {
       const args = match[1].trim();
       return {
-        summary: 'ファイルの権限を変更',
-        detail: `ファイルまたはディレクトリの権限を変更します: chmod ${args}`,
+        summary: t('cmd.chmod.summary'),
+        detail: t('cmd.chmod.detail', { args }),
       };
     },
   },
@@ -253,8 +293,8 @@ const RULES: DescriptionRule[] = [
       const cmd = match[1];
       const target = match[2].trim();
       return {
-        summary: `プロセス ${target} を終了`,
-        detail: `${cmd} コマンドでプロセス ${target} を終了します。`,
+        summary: t('cmd.kill.summary', { target }),
+        detail: t('cmd.kill.detail', { cmd, target }),
       };
     },
   },
@@ -264,8 +304,8 @@ const RULES: DescriptionRule[] = [
     describe: (match) => {
       const subcommand = match[1].split(/\s/)[0];
       return {
-        summary: `Docker ${subcommand} を実行`,
-        detail: `Docker コマンド "docker ${match[1].trim()}" を実行します。`,
+        summary: t('cmd.docker.summary', { subcommand }),
+        detail: t('cmd.docker.detail', { args: match[1].trim() }),
       };
     },
   },
@@ -274,23 +314,11 @@ const RULES: DescriptionRule[] = [
     pattern: /^(ls|cat|head|tail|echo|pwd|which|whoami|date|env|printenv)\b(.*)$/,
     describe: (match) => {
       const cmd = match[1];
-      const cmdNames: Record<string, string> = {
-        ls: 'ファイル一覧を表示',
-        cat: 'ファイル内容を表示',
-        head: 'ファイル先頭を表示',
-        tail: 'ファイル末尾を表示',
-        echo: 'テキストを出力',
-        pwd: '現在のディレクトリを表示',
-        which: 'コマンドのパスを表示',
-        whoami: '現在のユーザーを表示',
-        date: '日付を表示',
-        env: '環境変数を表示',
-        printenv: '環境変数を表示',
-      };
-      return {
-        summary: cmdNames[cmd] || `${cmd} を実行`,
-        detail: `${cmdNames[cmd] || `${cmd} コマンドを実行`}します。読み取り専用の安全なコマンドです。`,
-      };
+      const key = SAFE_CMD_KEYS[cmd];
+      const description = key ? t(key) : undefined;
+      const summary = description || t('cmd.safe.fallback', { cmd });
+      const detail = description ? t('cmd.safe.detail', { description }) : t('cmd.safe.detailFallback', { cmd });
+      return { summary, detail };
     },
   },
   // git status / log / diff / show
@@ -298,18 +326,13 @@ const RULES: DescriptionRule[] = [
     pattern: /^git\s+(status|log|diff|show|branch|remote)\b(.*)$/,
     describe: (match) => {
       const sub = match[1];
-      const cmdNames: Record<string, string> = {
-        status: 'Git の状態を確認',
-        log: 'コミット履歴を表示',
-        diff: '差分を表示',
-        show: 'コミット詳細を表示',
-        branch: 'ブランチ一覧を表示',
-        remote: 'リモート情報を表示',
-      };
-      return {
-        summary: cmdNames[sub] || `git ${sub} を実行`,
-        detail: `${cmdNames[sub] || `git ${sub} コマンドを実行`}します。`,
-      };
+      const key = GIT_READ_CMD_KEYS[sub];
+      const description = key ? t(key) : undefined;
+      const summary = description || t('cmd.git.read.fallback', { sub });
+      const detail = description
+        ? t('cmd.git.read.detail', { description })
+        : t('cmd.git.read.detailFallback', { sub });
+      return { summary, detail };
     },
   },
   // git add
@@ -318,15 +341,15 @@ const RULES: DescriptionRule[] = [
     describe: (match) => {
       const files = (match[1] || '').trim();
       return {
-        summary: `変更をステージ${files ? `: ${files}` : ''}`,
-        detail: `${files || 'ファイル'} の変更をステージングエリアに追加します。`,
+        summary: files ? t('cmd.git.add.summaryWithFiles', { files }) : t('cmd.git.add.summary'),
+        detail: t('cmd.git.add.detail', { files: files || t('cmd.git.add.defaultTarget') }),
       };
     },
   },
 ];
 
 /**
- * コマンド文字列を解析して日本語説明を生成する
+ * コマンド文字列を解析して説明を生成する
  */
 export function describeCommand(command: string): CommandDescription {
   const trimmed = command.trim();
@@ -336,9 +359,10 @@ export function describeCommand(command: string): CommandDescription {
     const parts = trimmed.split(/\s*\|\s*/);
     if (parts.length >= 2) {
       const descriptions = parts.map((p) => describeCommand(p).summary);
+      const joined = descriptions.join(t('cmd.pipe.separator'));
       return {
-        summary: descriptions.join(' → '),
-        detail: `パイプラインで複数のコマンドを連結して実行します: ${descriptions.join(' → ')}`,
+        summary: joined,
+        detail: t('cmd.pipe.detail', { descriptions: joined }),
       };
     }
   }
@@ -349,8 +373,8 @@ export function describeCommand(command: string): CommandDescription {
     if (parts.length >= 2) {
       const descriptions = parts.map((p) => describeCommand(p).summary);
       return {
-        summary: descriptions.join('、その後 '),
-        detail: `複数のコマンドを順次実行します: ${descriptions.join(' → ')}`,
+        summary: descriptions.join(t('cmd.chain.separator')),
+        detail: t('cmd.chain.detail', { descriptions: descriptions.join(t('cmd.pipe.separator')) }),
       };
     }
   }
@@ -365,8 +389,8 @@ export function describeCommand(command: string): CommandDescription {
   // マッチしなかった場合のデフォルト
   const firstWord = trimmed.split(/\s/)[0];
   return {
-    summary: `${firstWord} コマンドを実行`,
-    detail: `コマンド "${trimmed}" を実行します。`,
+    summary: t('cmd.default.summary', { cmd: firstWord }),
+    detail: t('cmd.default.detail', { command: trimmed }),
   };
 }
 
@@ -374,18 +398,8 @@ export function describeCommand(command: string): CommandDescription {
  * ツール名に基づく分類
  */
 export function classifyTool(toolName: string): string {
-  const classifications: Record<string, string> = {
-    Bash: 'シェルコマンド実行',
-    Read: 'ファイル読み取り',
-    Write: 'ファイル書き込み',
-    Edit: 'ファイル編集',
-    Glob: 'ファイル検索',
-    Grep: 'テキスト検索',
-    WebFetch: 'Web アクセス',
-    Task: 'エージェント起動',
-    NotebookEdit: 'ノートブック編集',
-  };
-  return classifications[toolName] || toolName;
+  const key = TOOL_CLASSIFY_KEYS[toolName];
+  return key ? t(key) : toolName;
 }
 
 export interface ToolActionDescription {
@@ -440,7 +454,7 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       const filePath = (toolInput.file_path as string) || '';
       return {
         displayText: editPreview(toolInput),
-        detail: `ファイル ${basename(filePath)} の内容を編集します。`,
+        detail: t('tool.action.edit.detail', { name: basename(filePath) }),
       };
     }
 
@@ -449,8 +463,8 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       const content = (toolInput.content as string) || '';
       const lineCount = content.split('\n').length;
       return {
-        displayText: `📄 ${filePath} (${lineCount}行)`,
-        detail: `ファイル ${basename(filePath)} に内容を書き込みます。`,
+        displayText: t('tool.action.write.display', { path: filePath, lines: lineCount }),
+        detail: t('tool.action.write.detail', { name: basename(filePath) }),
       };
     }
 
@@ -458,7 +472,7 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       const filePath = (toolInput.file_path as string) || '';
       return {
         displayText: `📖 ${filePath}`,
-        detail: 'ファイルを読み取ります。',
+        detail: t('tool.action.read.detail'),
       };
     }
 
@@ -466,7 +480,7 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       const url = (toolInput.url as string) || '';
       return {
         displayText: `🌐 ${url}`,
-        detail: `URL にアクセスしてコンテンツを取得します。`,
+        detail: t('tool.action.webfetch.detail'),
       };
     }
 
@@ -474,8 +488,8 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       const prompt = (toolInput.prompt as string) || '';
       const truncated = prompt.length > 100 ? `${prompt.slice(0, 100)}…` : prompt;
       return {
-        displayText: '🤖 サブエージェント',
-        detail: `サブエージェントを起動します: ${truncated}`,
+        displayText: t('tool.action.task.display'),
+        detail: t('tool.action.task.detail', { prompt: truncated }),
       };
     }
 
@@ -483,7 +497,7 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       const filePath = (toolInput.notebook_path as string) || '';
       return {
         displayText: `📓 ${filePath}`,
-        detail: 'ノートブックのセルを編集します。',
+        detail: t('tool.action.notebook.detail'),
       };
     }
 
@@ -493,14 +507,14 @@ export function describeToolAction(toolName: string, toolInput: Record<string, u
       if (mcp) {
         return {
           displayText: `🔌 ${mcp.server}: ${mcp.method}`,
-          detail: `MCP サーバー "${mcp.server}" の "${mcp.method}" を実行します。`,
+          detail: t('tool.action.mcp.detail', { server: mcp.server, method: mcp.method }),
         };
       }
 
       // 未知のツール
       return {
         displayText: `⚙️ ${toolName}`,
-        detail: `ツール "${toolName}" を実行します。`,
+        detail: t('tool.action.unknown.detail', { name: toolName }),
       };
     }
   }

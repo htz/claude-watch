@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { setLocale } from '../src/i18n/index';
 import { classifyTool, describeCommand, describeToolAction } from '../src/shared/tool-classifier';
 
-describe('describeCommand', () => {
+describe('describeCommand (ja)', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
   describe('rm commands', () => {
     it('should describe rm -rf with targets', () => {
       const result = describeCommand('rm -rf node_modules');
@@ -162,7 +167,44 @@ describe('describeCommand', () => {
   });
 });
 
-describe('classifyTool', () => {
+describe('describeCommand (en)', () => {
+  beforeAll(() => {
+    setLocale('en');
+  });
+
+  it('should describe rm in English', () => {
+    const result = describeCommand('rm -rf node_modules');
+    expect(result.summary).toContain('node_modules');
+    expect(result.detail).toContain('force');
+  });
+
+  it('should describe git push in English', () => {
+    const result = describeCommand('git push origin main');
+    expect(result.summary.toLowerCase()).toContain('push');
+  });
+
+  it('should describe ls in English', () => {
+    const result = describeCommand('ls -la');
+    expect(result.summary).toContain('List files');
+    expect(result.detail).toContain('read-only');
+  });
+
+  it('should describe piped commands in English', () => {
+    const result = describeCommand('cat file.txt | grep pattern');
+    expect(result.detail).toContain('pipeline');
+  });
+
+  it('should describe chained commands in English', () => {
+    const result = describeCommand('mkdir test && cd test');
+    expect(result.detail).toContain('sequentially');
+  });
+});
+
+describe('classifyTool (ja)', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
   it('should classify known tools', () => {
     expect(classifyTool('Bash')).toBe('シェルコマンド実行');
     expect(classifyTool('Read')).toBe('ファイル読み取り');
@@ -176,7 +218,29 @@ describe('classifyTool', () => {
   });
 });
 
-describe('describeToolAction', () => {
+describe('classifyTool (en)', () => {
+  beforeAll(() => {
+    setLocale('en');
+  });
+
+  it('should classify known tools in English', () => {
+    expect(classifyTool('Bash')).toBe('Shell command execution');
+    expect(classifyTool('Read')).toBe('File read');
+    expect(classifyTool('Write')).toBe('File write');
+    expect(classifyTool('Edit')).toBe('File edit');
+    expect(classifyTool('WebFetch')).toBe('Web access');
+  });
+
+  it('should return tool name for unknown tools', () => {
+    expect(classifyTool('CustomTool')).toBe('CustomTool');
+  });
+});
+
+describe('describeToolAction (ja)', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
   describe('Bash', () => {
     it('should delegate to describeCommand', () => {
       const result = describeToolAction('Bash', { command: 'npm install express' });
@@ -225,7 +289,7 @@ describe('describeToolAction', () => {
       });
       expect(result.displayText).toContain('📄');
       expect(result.displayText).toContain('/src/new.ts');
-      expect(result.displayText).toContain('3行');
+      expect(result.displayText).toContain('3');
       expect(result.detail).toContain('new.ts');
       expect(result.detail).toContain('書き込み');
     });
@@ -294,5 +358,33 @@ describe('describeToolAction', () => {
       expect(result.detail).toContain('ツール');
       expect(result.detail).toContain('CustomTool');
     });
+  });
+});
+
+describe('describeToolAction (en)', () => {
+  beforeAll(() => {
+    setLocale('en');
+  });
+
+  it('should describe Edit in English', () => {
+    const result = describeToolAction('Edit', {
+      file_path: '/src/server.ts',
+      old_string: 'a',
+      new_string: 'b',
+    });
+    expect(result.detail).toContain('Edits');
+    expect(result.detail).toContain('server.ts');
+  });
+
+  it('should describe Task in English', () => {
+    const result = describeToolAction('Task', { prompt: 'Search for files' });
+    expect(result.displayText).toContain('Sub-agent');
+    expect(result.detail).toContain('sub-agent');
+  });
+
+  it('should describe MCP tool in English', () => {
+    const result = describeToolAction('mcp__github__create_issue', {});
+    expect(result.detail).toContain('MCP server');
+    expect(result.detail).toContain('github');
   });
 });

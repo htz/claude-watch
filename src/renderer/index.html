@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,7 +19,7 @@
 
       <div class="content-scroll">
         <div id="unmatched-section" class="unmatched-section hidden">
-          <div class="unmatched-label">許可が必要なコマンド:</div>
+          <div class="unmatched-label" data-i18n="ui.unmatchedLabel"></div>
           <div id="unmatched-chips" class="unmatched-chips"></div>
         </div>
         <div class="command-block">
@@ -31,13 +31,13 @@
       </div>
 
       <div class="actions">
-        <button type="button" id="btn-deny" class="btn btn-deny">拒否</button>
-        <button type="button" id="btn-allow" class="btn btn-allow">許可</button>
+        <button type="button" id="btn-deny" class="btn btn-deny" data-i18n="ui.deny"></button>
+        <button type="button" id="btn-allow" class="btn btn-allow" data-i18n="ui.allow"></button>
       </div>
 
       <div class="shortcuts">
-        <span><kbd>⌘</kbd><kbd>Enter</kbd> 許可</span>
-        <span><kbd>Esc</kbd> 拒否</span>
+        <span><kbd>⌘</kbd><kbd>Enter</kbd> <span data-i18n="ui.allow"></span></span>
+        <span><kbd>Esc</kbd> <span data-i18n="ui.deny"></span></span>
       </div>
     </div>
 
@@ -58,11 +58,11 @@
       </div>
 
       <div class="actions">
-        <button type="button" id="btn-ok" class="btn btn-ok">OK</button>
+        <button type="button" id="btn-ok" class="btn btn-ok" data-i18n="ui.ok"></button>
       </div>
 
       <div class="shortcuts">
-        <span><kbd>⌘</kbd><kbd>Enter</kbd> 閉じる</span>
+        <span><kbd>⌘</kbd><kbd>Enter</kbd> <span data-i18n="ui.close"></span></span>
       </div>
     </div>
   </div>

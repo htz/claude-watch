@@ -1,3 +1,5 @@
+import type { Locale } from '@i18n';
+import { setLocale } from '@i18n';
 import { app, BrowserWindow, globalShortcut, ipcMain, session } from 'electron';
 import type { NotificationPopupData, PopupData } from '../shared/types';
 import { ClaudeWatchServer } from './server';
@@ -267,6 +269,11 @@ function showNextNotificationOrHide(): void {
 }
 
 app.whenReady().then(async () => {
+  // ロケール初期化
+  const appLocale = app.getLocale();
+  const locale: Locale = appLocale.startsWith('ja') ? 'ja' : 'en';
+  setLocale(locale);
+
   // Content Security Policy（開発時は webpack dev server 用に緩和）
   const csp = app.isPackaged
     ? "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'"

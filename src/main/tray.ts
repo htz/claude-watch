@@ -1,3 +1,4 @@
+import { t } from '@i18n';
 import { app, Menu, nativeImage, Tray } from 'electron';
 import fs from 'fs';
 import path from 'path';
@@ -72,14 +73,14 @@ export class TrayManager {
       },
       { type: 'separator' },
       {
-        label: 'ログイン時に起動',
+        label: t('tray.launchAtLogin'),
         type: 'checkbox',
         checked: launchAtLogin,
         click: (menuItem) => onToggleLaunchAtLogin(menuItem.checked),
       },
       { type: 'separator' },
       {
-        label: '終了',
+        label: t('tray.quit'),
         click: onQuit,
       },
     ]);

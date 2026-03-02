@@ -1,12 +1,22 @@
+import type { TranslationKey } from '@i18n';
+import { t } from '@i18n';
 import type { DangerInfo, DangerLevel } from './types';
 
-/** 危険度レベルごとの表示情報 */
-const DANGER_INFO_MAP: Record<DangerLevel, DangerInfo> = {
-  SAFE: { level: 'SAFE', label: '安全', badgeColor: '#34C759', buttonColor: '#007AFF' },
-  LOW: { level: 'LOW', label: '低', badgeColor: '#34C759', buttonColor: '#007AFF' },
-  MEDIUM: { level: 'MEDIUM', label: '中', badgeColor: '#FFD60A', buttonColor: '#007AFF' },
-  HIGH: { level: 'HIGH', label: '高', badgeColor: '#FF9500', buttonColor: '#FF9500' },
-  CRITICAL: { level: 'CRITICAL', label: '危険', badgeColor: '#FF3B30', buttonColor: '#FF3B30' },
+/** 危険度レベルごとの表示情報 (label は t() で動的生成) */
+const DANGER_BASE_MAP: Record<DangerLevel, { badgeColor: string; buttonColor: string }> = {
+  SAFE: { badgeColor: '#34C759', buttonColor: '#007AFF' },
+  LOW: { badgeColor: '#34C759', buttonColor: '#007AFF' },
+  MEDIUM: { badgeColor: '#FFD60A', buttonColor: '#007AFF' },
+  HIGH: { badgeColor: '#FF9500', buttonColor: '#FF9500' },
+  CRITICAL: { badgeColor: '#FF3B30', buttonColor: '#FF3B30' },
+};
+
+const DANGER_LABEL_KEYS: Record<DangerLevel, TranslationKey> = {
+  SAFE: 'danger.safe',
+  LOW: 'danger.low',
+  MEDIUM: 'danger.medium',
+  HIGH: 'danger.high',
+  CRITICAL: 'danger.critical',
 };
 
 /** CRITICAL: システムに致命的な損害を与えうるパターン */
@@ -181,7 +191,8 @@ function getHighestLevel(levels: DangerLevel[]): DangerLevel {
  * 危険度レベルから表示情報を取得
  */
 export function getDangerInfo(level: DangerLevel): DangerInfo {
-  return DANGER_INFO_MAP[level];
+  const base = DANGER_BASE_MAP[level];
+  return { level, label: t(DANGER_LABEL_KEYS[level]), ...base };
 }
 
 /**

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { setLocale } from '../src/i18n/index';
 import {
   analyzeCommand,
   analyzeDangerLevel,
@@ -129,7 +130,11 @@ describe('analyzeDangerLevel', () => {
   });
 });
 
-describe('analyzeCommand', () => {
+describe('analyzeCommand (ja)', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
   it('should return DangerInfo with correct properties', () => {
     const info = analyzeCommand('ls');
     expect(info).toEqual({
@@ -149,7 +154,29 @@ describe('analyzeCommand', () => {
   });
 });
 
+describe('analyzeCommand (en)', () => {
+  beforeAll(() => {
+    setLocale('en');
+  });
+
+  it('should return English label for SAFE', () => {
+    const info = analyzeCommand('ls');
+    expect(info.level).toBe('SAFE');
+    expect(info.label).toBe('Safe');
+  });
+
+  it('should return English label for CRITICAL', () => {
+    const info = analyzeCommand('sudo rm -rf /');
+    expect(info.level).toBe('CRITICAL');
+    expect(info.label).toBe('Critical');
+  });
+});
+
 describe('analyzeToolDanger', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
   describe('Bash delegation', () => {
     it('should delegate to analyzeCommand for Bash (SAFE)', () => {
       const info = analyzeToolDanger('Bash', { command: 'ls -la' });
@@ -203,6 +230,10 @@ describe('analyzeToolDanger', () => {
 });
 
 describe('elevateToMinimum', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
   it('should elevate SAFE to HIGH', () => {
     const info = getDangerInfo('SAFE');
     const elevated = elevateToMinimum(info, 'HIGH');
@@ -233,9 +264,10 @@ describe('elevateToMinimum', () => {
     expect(elevated.level).toBe('CRITICAL');
   });
 
-  it('should return the original info object when level is already sufficient', () => {
-    const info = getDangerInfo('CRITICAL');
+  it('should return a new info object when level is elevated', () => {
+    const info = getDangerInfo('SAFE');
     const elevated = elevateToMinimum(info, 'HIGH');
-    expect(elevated).toBe(info);
+    expect(elevated.level).toBe('HIGH');
+    expect(elevated).not.toBe(info);
   });
 });

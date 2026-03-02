@@ -1,3 +1,4 @@
+import { t } from '@i18n';
 import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
@@ -259,7 +260,7 @@ export class ClaudeWatchServer {
 
     const data: NotificationPopupData = {
       message: request.message || '',
-      title: request.title || '通知',
+      title: request.title || t('server.defaultNotificationTitle'),
       type: request.type || 'info',
       projectName,
       queueCount: this.queue.length,

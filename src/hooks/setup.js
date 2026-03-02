@@ -19,6 +19,19 @@ const path = require('path');
 const os = require('os');
 const readline = require('readline');
 
+// i18n: 開発時は src/i18n、パッケージ時は Resources/i18n から解決
+let i18n;
+try {
+  i18n = require(path.join(__dirname, '..', 'i18n', 'index.cjs'));
+} catch {
+  try {
+    i18n = require(path.join(__dirname, '..', '..', 'i18n', 'index.cjs'));
+  } catch {
+    i18n = { t: (key) => key };
+  }
+}
+const { t } = i18n;
+
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
 // setup.js と同じディレクトリにフックスクリプトがある
 const HOOKS_DIR = __dirname;
@@ -42,13 +55,19 @@ const TOOL_OPTIONS = [
 const HOOK_DEFS = [
   {
     key: 'PreToolUse',
-    label: 'PreToolUse (パーミッション確認ポップアップ)',
+    labelKey: 'setup.hook.preToolUse',
     file: 'permission-hook.js',
     timeout: 300,
     needsMatcher: true,
   },
-  { key: 'Notification', label: 'Notification (タスク通知)', file: 'notify-hook.js', timeout: 10, needsMatcher: false },
-  { key: 'Stop', label: 'Stop (タスク完了通知)', file: 'stop-hook.js', timeout: 10, needsMatcher: false },
+  {
+    key: 'Notification',
+    labelKey: 'setup.hook.notification',
+    file: 'notify-hook.js',
+    timeout: 10,
+    needsMatcher: false,
+  },
+  { key: 'Stop', labelKey: 'setup.hook.stop', file: 'stop-hook.js', timeout: 10, needsMatcher: false },
 ];
 
 // ---------------------------------------------------------------------------
@@ -152,13 +171,13 @@ function runAll(nodePath) {
   settings.hooks = hooks;
   saveSettings(settings);
 
-  console.log('=== 結果 ===');
+  console.log(t('setup.result'));
   for (const def of HOOK_DEFS) {
-    const toolsInfo = def.needsMatcher ? ` (${TOOL_OPTIONS.map((t) => t.label).join(', ')})` : '';
-    console.log(`  ✔ ${def.key.padEnd(14)} → 登録${toolsInfo}`);
+    const toolsInfo = def.needsMatcher ? ` (${TOOL_OPTIONS.map((o) => o.label).join(', ')})` : '';
+    console.log(`  ✔ ${def.key.padEnd(14)} → ${t('setup.registered')}${toolsInfo}`);
   }
   console.log('');
-  console.log('全フック・全ツールを登録しました。');
+  console.log(t('setup.allRegistered'));
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +186,7 @@ function runAll(nodePath) {
 function runRemove() {
   const settings = loadSettings();
   if (!settings.hooks || typeof settings.hooks !== 'object') {
-    console.log('フックが見つかりません。何もしません。');
+    console.log(t('setup.noHooksFound'));
     return;
   }
   const hooks = settings.hooks;
@@ -178,12 +197,12 @@ function runRemove() {
   settings.hooks = hooks;
   saveSettings(settings);
 
-  console.log('=== 結果 ===');
+  console.log(t('setup.result'));
   for (const def of HOOK_DEFS) {
-    console.log(`  ✗ ${def.key.padEnd(14)} → 削除`);
+    console.log(`  ✗ ${def.key.padEnd(14)} → ${t('setup.removed')}`);
   }
   console.log('');
-  console.log('全フックを削除しました。');
+  console.log(t('setup.allRemoved'));
 }
 
 // ---------------------------------------------------------------------------
@@ -196,18 +215,18 @@ async function runInteractive(nodePath) {
   });
 
   try {
-    console.log('=== フック選択 ===');
+    console.log(t('setup.hookSelect'));
     const hookSelections = new Map();
     for (let i = 0; i < HOOK_DEFS.length; i++) {
       const def = HOOK_DEFS[i];
-      const enabled = await ask(rl, `  [${i + 1}] ${def.label.padEnd(42)} [Y/n]: `);
+      const enabled = await ask(rl, `  [${i + 1}] ${t(def.labelKey).padEnd(42)} [Y/n]: `);
       hookSelections.set(def.key, enabled);
     }
     console.log('');
 
     let selectedTools = [];
     if (hookSelections.get('PreToolUse')) {
-      console.log('=== PreToolUse 対象ツール ===');
+      console.log(t('setup.toolSelect'));
       for (let i = 0; i < TOOL_OPTIONS.length; i++) {
         const tool = TOOL_OPTIONS[i];
         const enabled = await ask(rl, `  [${i + 1}] ${tool.label.padEnd(20)} [Y/n]: `);
@@ -218,7 +237,7 @@ async function runInteractive(nodePath) {
       console.log('');
 
       if (selectedTools.length === 0) {
-        console.log('  ⚠ ツールが選択されなかったため PreToolUse を無効化します。');
+        console.log(`  ${t('setup.noToolWarning')}`);
         hookSelections.set('PreToolUse', false);
         console.log('');
       }
@@ -242,13 +261,13 @@ async function runInteractive(nodePath) {
     settings.hooks = hooks;
     saveSettings(settings);
 
-    console.log('=== 結果 ===');
+    console.log(t('setup.result'));
     for (const def of HOOK_DEFS) {
       if (hookSelections.get(def.key)) {
-        const toolsInfo = def.needsMatcher ? ` (${selectedTools.map((t) => t.label).join(', ')})` : '';
-        console.log(`  ✔ ${def.key.padEnd(14)} → 登録${toolsInfo}`);
+        const toolsInfo = def.needsMatcher ? ` (${selectedTools.map((o) => o.label).join(', ')})` : '';
+        console.log(`  ✔ ${def.key.padEnd(14)} → ${t('setup.registered')}${toolsInfo}`);
       } else {
-        console.log(`  ✗ ${def.key.padEnd(14)} → スキップ`);
+        console.log(`  ✗ ${def.key.padEnd(14)} → ${t('setup.skipped')}`);
       }
     }
   } finally {
@@ -263,7 +282,7 @@ async function main() {
   const args = process.argv.slice(2);
   const nodePath = getNodePath();
 
-  console.log('Claude Watch — フックセットアップ');
+  console.log(t('setup.title'));
   console.log('');
   console.log(`Node.js path: ${nodePath}`);
   console.log(`Hooks dir:    ${HOOKS_DIR}`);
@@ -291,9 +310,9 @@ async function main() {
   }
 
   console.log('');
-  console.log('Next steps:');
-  console.log('  1. Claude Watch を起動');
-  console.log('  2. Claude Code を通常通り使用');
+  console.log(t('setup.nextSteps'));
+  console.log(`  ${t('setup.step1')}`);
+  console.log(`  ${t('setup.step2')}`);
 }
 
 main().catch((err) => {

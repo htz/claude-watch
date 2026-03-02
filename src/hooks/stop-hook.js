@@ -12,6 +12,19 @@ const http = require('http');
 const path = require('path');
 const os = require('os');
 
+// i18n: 開発時は src/i18n、パッケージ時は Resources/i18n から解決
+let i18n;
+try {
+  i18n = require(path.join(__dirname, '..', 'i18n', 'index.cjs'));
+} catch {
+  try {
+    i18n = require(path.join(__dirname, '..', '..', 'i18n', 'index.cjs'));
+  } catch {
+    i18n = { t: (key) => key };
+  }
+}
+const { t } = i18n;
+
 const SOCKET_PATH = path.join(os.homedir(), '.claude-watch', 'watch.sock');
 const TIMEOUT_MS = 5000;
 const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
@@ -65,7 +78,7 @@ async function main() {
     process.exit(0);
   }
 
-  const reason = data.stop_hook_active !== undefined ? 'タスクが完了しました' : 'Claude Code が停止しました';
+  const reason = data.stop_hook_active !== undefined ? t('hook.taskCompleted') : t('hook.claudeStopped');
 
   await sendNotification(reason, 'Claude Code', 'stop', process.cwd());
 }

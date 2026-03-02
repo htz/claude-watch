@@ -53,11 +53,19 @@ interface TypeConfig {
   label: string;
 }
 
-const TYPE_CONFIG: Record<string, TypeConfig> = {
+let TYPE_CONFIG: Record<string, TypeConfig> = {
   info: { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: t('ui.ok') },
   stop: { icon: '\u2705', buttonColor: '#34c759', label: t('ui.ok') },
   question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: t('ui.confirm') },
 };
+
+function rebuildTypeConfig(): void {
+  TYPE_CONFIG = {
+    info: { icon: '\uD83D\uDCE2', buttonColor: '#007aff', label: t('ui.ok') },
+    stop: { icon: '\u2705', buttonColor: '#34c759', label: t('ui.ok') },
+    question: { icon: '\uD83D\uDCAC', buttonColor: '#ff9500', label: t('ui.confirm') },
+  };
+}
 
 function renderUnmatchedCommands(data: PopupData): void {
   unmatchedChips.innerHTML = '';
@@ -251,6 +259,15 @@ document.addEventListener('keydown', (e) => {
       window.claudeWatchAPI.dismissNotification();
     }
   }
+});
+
+// Listen for locale changes from main process
+window.claudeWatchAPI.onLocaleChange((newLocale: string) => {
+  const loc = newLocale as Locale;
+  setLocale(loc);
+  document.documentElement.lang = loc;
+  applyLocale();
+  rebuildTypeConfig();
 });
 
 // Listen for IPC events from main process

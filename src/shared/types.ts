@@ -79,6 +79,7 @@ export interface ClaudeWatchAPI {
   onPermission: (callback: (data: PopupData) => void) => void;
   onNotification: (callback: (data: NotificationPopupData) => void) => void;
   onQueueUpdate: (callback: (count: number) => void) => void;
+  onLocaleChange: (callback: (locale: string) => void) => void;
   respond: (id: string, decision: 'allow' | 'deny' | 'skip') => void;
   dismissNotification: () => void;
 }

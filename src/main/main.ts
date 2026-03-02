@@ -305,12 +305,20 @@ app.whenReady().then(async () => {
     onToggleLaunchAtLogin: (enabled: boolean) => {
       app.setLoginItemSettings({ openAtLogin: enabled });
     },
+    onChangeLocale: (newLocale: Locale) => {
+      setLocale(newLocale);
+      trayManager.updateLocale(newLocale);
+      if (mainWindow) {
+        mainWindow.webContents.send('locale-changed', newLocale);
+      }
+    },
     onClick: () => {
       if (server?.getQueueLength() > 0) {
         server.reshowCurrentItem();
       }
     },
     launchAtLogin,
+    currentLocale: locale,
   });
 
   // Create window

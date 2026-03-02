@@ -23,6 +23,13 @@ const api: ClaudeWatchAPI = {
     });
   },
 
+  onLocaleChange: (callback: (locale: string) => void) => {
+    ipcRenderer.removeAllListeners('locale-changed');
+    ipcRenderer.on('locale-changed', (_event, locale: string) => {
+      callback(locale);
+    });
+  },
+
   respond: (id: string, decision: 'allow' | 'deny' | 'skip') => {
     ipcRenderer.send('permission-response', { id, decision });
   },

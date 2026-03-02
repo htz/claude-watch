@@ -1,3 +1,4 @@
+import type { Locale } from '@i18n';
 import { t } from '@i18n';
 import { app, Menu, nativeImage, Tray } from 'electron';
 import fs from 'fs';
@@ -17,18 +18,22 @@ const TRAY_MAX_RETRIES = 3;
 interface TrayCreateOptions {
   onQuit: () => void;
   onToggleLaunchAtLogin: (enabled: boolean) => void;
+  onChangeLocale: (locale: Locale) => void;
   onClick?: () => void;
   launchAtLogin: boolean;
+  currentLocale: Locale;
 }
 
 export class TrayManager {
   private tray: Tray | null = null;
   private createOptions: TrayCreateOptions | null = null;
+  private currentLocale: Locale = 'en';
   private retryCount = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   create(options: TrayCreateOptions): Tray {
     this.createOptions = options;
+    this.currentLocale = options.currentLocale;
 
     this.setupTray();
 
@@ -62,16 +67,38 @@ export class TrayManager {
     this.rebuildContextMenu(checked);
   }
 
+  updateLocale(locale: Locale): void {
+    this.currentLocale = locale;
+    this.rebuildContextMenu(this.createOptions?.launchAtLogin ?? false);
+  }
+
   private rebuildContextMenu(launchAtLogin: boolean): void {
     if (!this.tray || !this.createOptions) return;
 
-    const { onQuit, onToggleLaunchAtLogin } = this.createOptions;
+    const { onQuit, onToggleLaunchAtLogin, onChangeLocale } = this.createOptions;
     const contextMenu = Menu.buildFromTemplate([
       {
         label: 'Claude Watch',
         enabled: false,
       },
       { type: 'separator' },
+      {
+        label: t('tray.language'),
+        submenu: [
+          {
+            label: t('tray.language.ja'),
+            type: 'radio',
+            checked: this.currentLocale === 'ja',
+            click: () => onChangeLocale('ja'),
+          },
+          {
+            label: t('tray.language.en'),
+            type: 'radio',
+            checked: this.currentLocale === 'en',
+            click: () => onChangeLocale('en'),
+          },
+        ],
+      },
       {
         label: t('tray.launchAtLogin'),
         type: 'checkbox',

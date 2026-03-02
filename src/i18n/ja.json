@@ -5,6 +5,9 @@
   "danger.high": "高",
   "danger.critical": "危険",
 
+  "tray.language": "言語",
+  "tray.language.ja": "日本語",
+  "tray.language.en": "English",
   "tray.launchAtLogin": "ログイン時に起動",
   "tray.quit": "終了",
 

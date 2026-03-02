@@ -35,19 +35,33 @@ Real-time notifications for task completion and input requests.
 
 ## Features
 
-- **Permission Popups** — Allow/deny before executing dangerous tools like `Bash`, `Edit`, `Write`
-- **settings.json Permission Check** — Respects Claude Code's `permissions` (deny/ask/allow), evaluated in deny → ask → allow order
-- **bypassPermissions Support** — Auto-skips all popups when `--dangerously-skip-permissions` or `defaultMode: "bypassPermissions"` is active
-- **Danger Badges** — Auto-analyzes commands into 5 levels (safe/low/medium/high/critical) with color coding. Tools matching the ask list are elevated to at least HIGH
-- **Bash Command AST Parsing** — Parses commands with tree-sitter-bash for precise per-subcommand permission checks across pipes and chains
-- **Task Notifications** — Real-time notifications via Notification / Stop hooks
-- **Queuing** — Processes multiple requests sequentially with pending count display (permissions take priority over notifications)
-- **Keyboard Shortcuts** — `⌘Enter` to allow, `Esc` to deny (active only while popup is visible)
-- **Non-intrusive UI** — Popups appear without stealing focus (`showInactive`). On focus loss, auto-skips to Claude Code's native dialog
-- **i18n** — Auto-detects Japanese/English from system locale, with manual switching from the tray menu
-- **Dark Mode** — Follows macOS system theme
-- **Unix Domain Socket** — No port conflicts, owner-only access (0o700/0o600)
-- **Graceful Degradation** — Falls back to Claude Code's native dialog via exit(0) when the app is not running or on error
+### Stay in flow while staying safe
+
+- **Instant risk visibility** — Commands are auto-analyzed into 5 danger levels (🟢safe → 🟡caution → 🟠warning → 🔴danger) with color-coded badges. Focus only on what actually needs your attention
+- **Keyboard-first decisions** — `⌘Enter` to allow, `Esc` to deny. No need to reach for the mouse — keep your coding flow unbroken
+- **Non-intrusive popups** — Notifications appear without stealing focus from your editor or terminal. Your current window stays active
+
+### Never miss what Claude Code is doing
+
+- **Know when tasks finish** — Get notified the moment Claude Code completes a task. No more switching to the terminal to check "is it done yet?"
+- **Catch input prompts instantly** — When Claude Code needs your response, a persistent notification stays visible until you dismiss it
+- **Organized queue for busy sessions** — Even when confirmations pile up, they're shown one by one with a pending count badge. Nothing gets lost
+
+### Works with your existing setup
+
+- **Respects your settings.json rules** — Your existing allow / deny / ask permissions are honored as-is. Already-allowed commands pass through with no popup
+- **`--dangerously-skip-permissions` aware** — All popups auto-skip in unattended mode, so automation isn't interrupted
+
+### Reliable fallback design
+
+- **Claude Code keeps running no matter what** — If Claude Watch is not running or encounters an error, Claude Code's built-in dialog takes over automatically. Your workflow never breaks
+- **Missed popups don't block you** — If a popup loses focus, it gracefully hands off to Claude Code's native confirmation
+
+### And more
+
+- **Japanese / English** — Auto-detected from system locale, switchable anytime from the tray menu
+- **Dark mode** — Automatically follows macOS system theme
+- **Secure communication** — Unix domain socket with no port conflicts and owner-only access
 
 ## Requirements
 

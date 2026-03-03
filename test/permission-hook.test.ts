@@ -16,6 +16,7 @@ const {
   stripLeadingEnvVars,
   extractUnmatchedCommands,
   parseAndExtractCommands,
+  hasStringLevelSuspiciousPattern,
   hasSuspiciousPattern,
   initTreeSitter,
 } = require('../src/hooks/permission-hook');
@@ -1303,5 +1304,162 @@ describe('hasSuspiciousPattern', () => {
 
   it('should return false for chained simple commands', () => {
     expect(hasSuspiciousPattern('git add . && git commit -m "test"')).toBe(false);
+  });
+});
+
+// hasStringLevelSuspiciousPattern — tengu 非オーバーライドチェック文字列検知
+// ---------------------------------------------------------------------------
+describe('hasStringLevelSuspiciousPattern', () => {
+  // CONTROL_CHARACTERS
+  it('should detect non-printable control characters (NUL)', () => {
+    expect(hasStringLevelSuspiciousPattern('echo \x00')).toBe(true);
+  });
+  it('should detect non-printable control characters (BEL)', () => {
+    expect(hasStringLevelSuspiciousPattern('echo \x07')).toBe(true);
+  });
+  it('should detect non-printable control characters (ESC)', () => {
+    expect(hasStringLevelSuspiciousPattern('echo \x1b[31m')).toBe(true);
+  });
+  it('should not flag tab as control character', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\thello')).toBe(false);
+  });
+
+  // UNICODE_WHITESPACE
+  it('should detect non-breaking space (U+00A0)', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\u00A0hello')).toBe(true);
+  });
+  it('should detect zero-width space (U+200B)', () => {
+    expect(hasStringLevelSuspiciousPattern('rm\u200Bfile')).toBe(true);
+  });
+  it('should detect ideographic space (U+3000)', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\u3000hello')).toBe(true);
+  });
+  it('should detect BOM (U+FEFF)', () => {
+    expect(hasStringLevelSuspiciousPattern('\uFEFFecho hello')).toBe(true);
+  });
+
+  // BACKSLASH_ESCAPED_WHITESPACE
+  it('should detect backslash-escaped space', () => {
+    expect(hasStringLevelSuspiciousPattern('ls My\\ Documents/')).toBe(true);
+  });
+  it('should detect backslash-escaped tab', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\\\thello')).toBe(true);
+  });
+
+  // BACKSLASH_ESCAPED_OPERATORS
+  it('should detect backslash before semicolon', () => {
+    expect(hasStringLevelSuspiciousPattern('echo hello\\;rm -rf /')).toBe(true);
+  });
+  it('should detect backslash before pipe', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\\|cat')).toBe(true);
+  });
+  it('should detect backslash before ampersand', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\\&cat')).toBe(true);
+  });
+  it('should detect backslash before redirect', () => {
+    expect(hasStringLevelSuspiciousPattern('echo\\>/etc/passwd')).toBe(true);
+  });
+
+  // BRACE_EXPANSION
+  it('should detect brace expansion with comma', () => {
+    expect(hasStringLevelSuspiciousPattern('cp file.{bak,txt}')).toBe(true);
+  });
+  it('should detect brace expansion in mkdir', () => {
+    expect(hasStringLevelSuspiciousPattern('mkdir -p src/{main,test}')).toBe(true);
+  });
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
+  it('should not flag ${var} as brace expansion', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
+    expect(hasStringLevelSuspiciousPattern('echo ${HOME}')).toBe(false);
+  });
+
+  // IFS_INJECTION
+  it('should detect IFS assignment', () => {
+    expect(hasStringLevelSuspiciousPattern('IFS=: read -r a b')).toBe(true);
+  });
+  it('should detect IFS variable reference', () => {
+    expect(hasStringLevelSuspiciousPattern('echo $IFS')).toBe(true);
+  });
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
+  it('should detect ${IFS} reference', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash variable expansion in test data
+    expect(hasStringLevelSuspiciousPattern('echo ${IFS}')).toBe(true);
+  });
+
+  // PROC_ENVIRON_ACCESS
+  it('should detect /proc/self/environ access', () => {
+    expect(hasStringLevelSuspiciousPattern('cat /proc/self/environ')).toBe(true);
+  });
+  it('should detect /proc/1/environ access', () => {
+    expect(hasStringLevelSuspiciousPattern('cat /proc/1/environ')).toBe(true);
+  });
+
+  // OBFUSCATED_FLAGS
+  it('should detect quoted characters in flag names', () => {
+    expect(hasStringLevelSuspiciousPattern("git commit --no'-'verify")).toBe(true);
+  });
+  it('should detect double-quoted characters in flag names', () => {
+    expect(hasStringLevelSuspiciousPattern('git push --"f"orce')).toBe(true);
+  });
+
+  // ZSH_DANGEROUS_COMMANDS
+  it('should detect zmodload', () => {
+    expect(hasStringLevelSuspiciousPattern('zmodload zsh/system')).toBe(true);
+  });
+  it('should detect zpty', () => {
+    expect(hasStringLevelSuspiciousPattern('zpty -r output')).toBe(true);
+  });
+  it('should detect fc -e', () => {
+    expect(hasStringLevelSuspiciousPattern('fc -e vim')).toBe(true);
+  });
+
+  // JQ_SYSTEM_FUNCTION
+  it('should detect jq system() call', () => {
+    expect(hasStringLevelSuspiciousPattern('jq ".[] | system("rm")"')).toBe(true);
+  });
+  it('should not flag jq without system()', () => {
+    expect(hasStringLevelSuspiciousPattern('jq ".name" file.json')).toBe(false);
+  });
+
+  // INCOMPLETE_COMMANDS
+  it('should detect command starting with semicolon', () => {
+    expect(hasStringLevelSuspiciousPattern('; rm -rf /')).toBe(true);
+  });
+  it('should detect command starting with pipe', () => {
+    expect(hasStringLevelSuspiciousPattern('| cat /etc/passwd')).toBe(true);
+  });
+  it('should detect command starting with ampersand', () => {
+    expect(hasStringLevelSuspiciousPattern('&& rm -rf /')).toBe(true);
+  });
+
+  // Compound cd checks
+  it('should detect cd && git (bare repo attack)', () => {
+    expect(hasStringLevelSuspiciousPattern('cd /tmp/repo && git status')).toBe(true);
+  });
+  it('should detect cd && rm (write operation)', () => {
+    expect(hasStringLevelSuspiciousPattern('cd /tmp && rm -rf old')).toBe(true);
+  });
+  it('should detect cd ; mv (write via semicolon)', () => {
+    expect(hasStringLevelSuspiciousPattern('cd /tmp ; mv a b')).toBe(true);
+  });
+  it('should detect cd && redirect (output redirection)', () => {
+    expect(hasStringLevelSuspiciousPattern('cd dist && echo data > out.txt')).toBe(true);
+  });
+  it('should not flag cd alone', () => {
+    expect(hasStringLevelSuspiciousPattern('cd /tmp')).toBe(false);
+  });
+  it('should not flag cd && ls (read-only)', () => {
+    expect(hasStringLevelSuspiciousPattern('cd /tmp && ls')).toBe(false);
+  });
+
+  // Safe commands
+  it('should return false for normal commands', () => {
+    expect(hasStringLevelSuspiciousPattern('git status')).toBe(false);
+  });
+  it('should return false for simple pipe', () => {
+    expect(hasStringLevelSuspiciousPattern('cat file.txt | grep pattern')).toBe(false);
+  });
+  it('should return false for simple chained commands', () => {
+    expect(hasStringLevelSuspiciousPattern('npm install && npm test')).toBe(false);
   });
 });

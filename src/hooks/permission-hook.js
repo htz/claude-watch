@@ -446,14 +446,77 @@ function containsSuspiciousNode(node) {
 }
 
 /**
+ * コマンド文字列を文字列レベルで検査し、Claude Code 本体の tengu セキュリティチェック
+ * (isBashSecurityCheckForMisparsing: true) に該当するパターンを検知する。
+ * AST ベースの containsSuspiciousNode では拾えないパターンをカバーする。
+ *
+ * @param {string} command - Bash コマンド文字列
+ * @returns {boolean}
+ */
+function hasStringLevelSuspiciousPattern(command) {
+  // CONTROL_CHARACTERS: 非印刷制御文字 (タブ 0x09, LF 0x0a, CR 0x0d を除く)
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字検知が目的
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(command)) return true;
+
+  // UNICODE_WHITESPACE: Unicode の不可視空白・ゼロ幅文字
+  if (/[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/.test(command)) return true;
+
+  // BACKSLASH_ESCAPED_WHITESPACE: バックスラッシュ + 空白/タブ (パース差異を悪用)
+  if (/\\[ \t]/.test(command)) return true;
+
+  // BACKSLASH_ESCAPED_OPERATORS: バックスラッシュ + シェル演算子 (構造隠蔽)
+  if (/\\[;|&<>]/.test(command)) return true;
+
+  // BRACE_EXPANSION: ${...} ではないブレース展開 (パース変更の可能性)
+  if (/(?<!\$)\{[^}]*,[^}]*\}/.test(command)) return true;
+
+  // IFS_INJECTION: IFS 変数の設定・参照 (セキュリティバリデーション回避)
+  if (/\bIFS\s*=/.test(command) || /\$\{?IFS\b/.test(command)) return true;
+
+  // PROC_ENVIRON_ACCESS: /proc/*/environ アクセス (環境変数漏洩)
+  if (/\/proc\/[^/\s]*\/environ/.test(command)) return true;
+
+  // OBFUSCATED_FLAGS: フラグ名内の引用符 (フラグ分断による検知回避)
+  if (/--?[A-Za-z]*['"][A-Za-z]/.test(command)) return true;
+
+  // ZSH_DANGEROUS_COMMANDS: Zsh 固有の危険なビルトイン
+  if (
+    /\b(?:zmodload|emulate|sysopen|sysread|syswrite|sysseek|zpty|ztcp|zsocket|mapfile|zf_rm|zf_mv|zf_ln|zf_chmod|zf_chown|zf_mkdir|zf_rmdir|zf_chgrp)\b/.test(
+      command,
+    )
+  )
+    return true;
+  if (/\bfc\s+-e\b/.test(command)) return true;
+
+  // JQ_SYSTEM_FUNCTION: jq の system() 関数 (任意コマンド実行)
+  if (/\bjq\b/.test(command) && /\bsystem\s*\(/.test(command)) return true;
+
+  // INCOMPLETE_COMMANDS: 演算子で始まるコマンド断片 (連結攻撃)
+  if (/^\s*[;|&]/.test(command)) return true;
+
+  // Compound cd: cd + && / ; で書き込み系コマンドや git を実行 (パス解決バイパス)
+  if (/\bcd\b/.test(command) && /&&|;|\|\|/.test(command)) {
+    if (/\b(?:git|rm|mv|cp|chmod|chown|mkdir|rmdir|touch|tee|dd|install|ln|sed|awk)\b/.test(command)) return true;
+    if (/>(?!&)/.test(command)) return true;
+  }
+
+  return false;
+}
+
+/**
  * コマンド文字列がコマンドインジェクションに該当する疑わしいパターンを含むかを判定する。
- * tree-sitter が利用可能な場合は AST ベースで検知、
- * 利用不可の場合は正規表現にフォールバック。
+ * 1. 文字列レベルで tengu の非オーバーライドチェックに該当するパターンを検知
+ * 2. tree-sitter が利用可能な場合は AST ベースで検知 (変数展開、コマンド置換等)
+ * 3. tree-sitter 利用不可の場合は正規表現にフォールバック
  *
  * @param {string} command - Bash コマンド文字列
  * @returns {boolean}
  */
 function hasSuspiciousPattern(command) {
+  // 文字列レベルチェック (AST 不要)
+  if (hasStringLevelSuspiciousPattern(command)) return true;
+
+  // AST レベルチェック (変数展開・コマンド置換)
   const regexFallback = /\$\(|`[^`]*`|[<>]\(|\$[{@*#?!0-9]|\$[A-Za-z_]/;
   if (!parser) {
     return regexFallback.test(command);
@@ -777,6 +840,17 @@ async function main() {
   // settings ファイルの bypassPermissions が有効な場合も全てスキップ
   if (perms.bypassPermissions) process.exit(0);
 
+  // Claude Code のコマンドインジェクション検知 (tengu) に該当するパターン
+  // → allow/ask リストより先に判定 (allow で抜けると通知が飛ばない問題の修正)
+  // → ポップアップではなく通知 + フォールスルーで Claude Code に委譲
+  if (toolName === 'Bash' && command && hasSuspiciousPattern(command)) {
+    const appRunning = await healthCheck();
+    if (appRunning) {
+      await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
+    }
+    process.exit(0);
+  }
+
   // ask リストマッチ判定 (deny → ask → allow の順で評価)
   const isAskListed =
     toolName === 'Bash'
@@ -806,16 +880,6 @@ async function main() {
       process.exit(0);
     }
     unmatchedCommands = { commands: unmatched, hasUnresolvable };
-  }
-
-  // Claude Code のコマンドインジェクション検知に該当するパターン
-  // → ポップアップではなく通知 + フォールスルーで Claude Code に委譲
-  if (toolName === 'Bash' && command && hasSuspiciousPattern(command)) {
-    const appRunning = await healthCheck();
-    if (appRunning) {
-      await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
-    }
-    process.exit(0);
   }
 
   // Check if app is running
@@ -874,6 +938,7 @@ module.exports = {
   extractCommandsFromAST,
   parseAndExtractCommands,
   containsSuspiciousNode,
+  hasStringLevelSuspiciousPattern,
   hasSuspiciousPattern,
   initTreeSitter,
 };

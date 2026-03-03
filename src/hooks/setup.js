@@ -315,7 +315,19 @@ async function main() {
   console.log(`  ${t('setup.step2')}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// テスト用エクスポート (直接実行時は main を起動)
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  isOurHook,
+  buildMatcher,
+  removeOurHooks,
+  registerHook,
+  TOOL_OPTIONS,
+  HOOK_DEFS,
+};

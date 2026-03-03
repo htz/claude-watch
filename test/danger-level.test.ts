@@ -14,13 +14,27 @@ describe('analyzeDangerLevel', () => {
       'ls',
       'ls -la',
       'cat file.txt',
+      'head -n 10 file.txt',
+      'tail -f log.txt',
       'pwd',
       'git status',
       'git log --oneline',
       'git diff HEAD',
+      'git show HEAD',
+      'git branch',
+      'git branch -v',
+      'git remote -v',
       'echo hello',
       'which node',
       'whoami',
+      'date',
+      'env',
+      'printenv',
+      'npm list',
+      'npm ls',
+      'npm view express',
+      'npm info react',
+      'npm outdated',
     ])('should classify "%s" as SAFE', (cmd) => {
       expect(analyzeDangerLevel(cmd)).toBe('SAFE');
     });
@@ -31,14 +45,22 @@ describe('analyzeDangerLevel', () => {
       'npm test',
       'npm run test',
       'yarn test',
+      'pnpm test',
       'vitest',
       'jest',
+      'pytest',
       'npm run build',
       'npm run lint',
       'git add .',
+      'git add file.txt',
       'git checkout -b feature',
+      'git switch main',
       'find . -name "*.ts"',
       'grep -r pattern .',
+      'rg pattern',
+      'tree',
+      'wc -l file.txt',
+      'diff a.txt b.txt',
     ])('should classify "%s" as LOW', (cmd) => {
       expect(analyzeDangerLevel(cmd)).toBe('LOW');
     });
@@ -50,17 +72,27 @@ describe('analyzeDangerLevel', () => {
       'npm install express',
       'npm ci',
       'yarn add lodash',
+      'yarn install',
+      'pnpm add lodash',
+      'pnpm install',
       'git commit -m "test"',
       'git merge feature',
       'git rebase main',
+      'git stash',
+      'git branch -d feature',
+      'git branch -D feature',
       'mkdir new-dir',
       'touch file.txt',
       'mv a.txt b.txt',
       'cp a.txt b.txt',
       'npm run dev',
+      'yarn run dev',
       'python script.py',
+      'python3 script.py',
       'node index.js',
       'tsc --build',
+      'sed -i "s/a/b/" file.txt',
+      'awk "{print $1}" file.txt',
     ])('should classify "%s" as MEDIUM', (cmd) => {
       expect(analyzeDangerLevel(cmd)).toBe('MEDIUM');
     });
@@ -70,19 +102,34 @@ describe('analyzeDangerLevel', () => {
     it.each([
       'rm -r dir/',
       'rm -rf node_modules',
+      // 'rm -fr /tmp/test' → CRITICAL (/ で始まるパスは CRITICAL パターンにマッチ)
       'rm -f file.txt',
       'git push origin main',
+      'git push',
       'git reset --hard HEAD~1',
       'git clean -fd',
+      'git clean -xf',
+      'git checkout .',
       'curl https://example.com',
+      'curl -o file https://example.com/dl',
       'wget https://example.com',
+      'wget -O output https://example.com',
+      'curl https://example.com | bash',
+      'wget https://example.com | sh',
       'chmod 755 script.sh',
       'chown user file',
       'kill 1234',
+      'kill -9 1234',
       'pkill node',
+      'killall node',
       'docker rm container',
+      'docker rmi image',
+      'docker prune',
+      'docker stop container',
+      'docker kill container',
       'npm publish',
       'npx some-package',
+      'pip install flask',
     ])('should classify "%s" as HIGH', (cmd) => {
       expect(analyzeDangerLevel(cmd)).toBe('HIGH');
     });
@@ -92,8 +139,16 @@ describe('analyzeDangerLevel', () => {
     it.each([
       'sudo apt install nginx',
       'sudo rm -rf /',
+      'sudo chmod 777 /',
       'dd if=/dev/zero of=/dev/sda',
       'mkfs.ext4 /dev/sda1',
+      'chmod 777 /etc',
+      'chmod -R 777 /',
+      'systemctl stop nginx',
+      'systemctl disable sshd',
+      'systemctl mask docker',
+      'launchctl unload com.apple.service',
+      'launchctl remove com.apple.service',
     ])('should classify "%s" as CRITICAL', (cmd) => {
       expect(analyzeDangerLevel(cmd)).toBe('CRITICAL');
     });
@@ -121,11 +176,35 @@ describe('analyzeDangerLevel', () => {
       // git add (LOW) && git commit (MEDIUM) && git push (HIGH) → HIGH
       expect(analyzeDangerLevel('git add . && git commit -m "msg" && git push')).toBe('HIGH');
     });
+
+    it('should handle semicolon chained commands', () => {
+      // ls (SAFE) ; rm -rf dir (HIGH) → HIGH
+      expect(analyzeDangerLevel('ls; rm -rf dir')).toBe('HIGH');
+    });
+
+    it('should handle || chained commands', () => {
+      // npm test (LOW) || echo "fail" (SAFE) → LOW
+      expect(analyzeDangerLevel('npm test || echo "fail"')).toBe('LOW');
+    });
   });
 
   describe('unknown commands', () => {
     it('should classify unknown commands as MEDIUM', () => {
       expect(analyzeDangerLevel('some-unknown-command')).toBe('MEDIUM');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle empty string as MEDIUM', () => {
+      expect(analyzeDangerLevel('')).toBe('MEDIUM');
+    });
+
+    it('should handle whitespace-only string as MEDIUM', () => {
+      expect(analyzeDangerLevel('   ')).toBe('MEDIUM');
+    });
+
+    it('should handle commands with leading/trailing whitespace', () => {
+      expect(analyzeDangerLevel('  ls  ')).toBe('SAFE');
     });
   });
 });
@@ -269,5 +348,63 @@ describe('elevateToMinimum', () => {
     const elevated = elevateToMinimum(info, 'HIGH');
     expect(elevated.level).toBe('HIGH');
     expect(elevated).not.toBe(info);
+  });
+
+  it('should return same object when already at minimum', () => {
+    const info = getDangerInfo('HIGH');
+    const elevated = elevateToMinimum(info, 'MEDIUM');
+    expect(elevated).toBe(info);
+  });
+
+  it('should elevate SAFE to CRITICAL', () => {
+    const info = getDangerInfo('SAFE');
+    const elevated = elevateToMinimum(info, 'CRITICAL');
+    expect(elevated.level).toBe('CRITICAL');
+  });
+});
+
+describe('getDangerInfo', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    ['SAFE', '安全', '#34C759', '#007AFF'],
+    ['LOW', '低', '#34C759', '#007AFF'],
+    ['MEDIUM', '中', '#FFD60A', '#007AFF'],
+    ['HIGH', '高', '#FF9500', '#FF9500'],
+    ['CRITICAL', '危険', '#FF3B30', '#FF3B30'],
+  ] as const)('should return correct DangerInfo for %s', (level, expectedLabel, expectedBadgeColor, expectedButtonColor) => {
+    const info = getDangerInfo(level);
+    expect(info.level).toBe(level);
+    expect(info.label).toBe(expectedLabel);
+    expect(info.badgeColor).toBe(expectedBadgeColor);
+    expect(info.buttonColor).toBe(expectedButtonColor);
+  });
+});
+
+describe('analyzeToolDanger (additional)', () => {
+  beforeAll(() => {
+    setLocale('ja');
+  });
+
+  it('should handle Bash with no command property', () => {
+    const info = analyzeToolDanger('Bash', {});
+    expect(info.level).toBe('MEDIUM');
+  });
+
+  it('should handle Bash with HIGH command', () => {
+    const info = analyzeToolDanger('Bash', { command: 'git push --force origin main' });
+    expect(info.level).toBe('HIGH');
+  });
+
+  it('should handle Bash with LOW command', () => {
+    const info = analyzeToolDanger('Bash', { command: 'npm test' });
+    expect(info.level).toBe('LOW');
+  });
+
+  it('should handle Bash with MEDIUM command', () => {
+    const info = analyzeToolDanger('Bash', { command: 'npm install' });
+    expect(info.level).toBe('MEDIUM');
   });
 });

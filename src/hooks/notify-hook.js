@@ -77,6 +77,11 @@ async function main() {
   await sendNotification(message, title, type);
 }
 
-main()
-  .catch(() => {})
-  .finally(() => process.exit(0));
+// テスト用エクスポート (直接実行時は main を起動)
+if (require.main === module) {
+  main()
+    .catch(() => {})
+    .finally(() => process.exit(0));
+}
+
+module.exports = { sendNotification, main, SOCKET_PATH, TIMEOUT_MS, MAX_STDIN_SIZE };

@@ -3,6 +3,7 @@ import { setLocale } from '@i18n';
 import { app, BrowserWindow, globalShortcut, ipcMain, session } from 'electron';
 import fs from 'fs';
 import { CONFIG_PATH, SOCKET_DIR } from '../shared/constants';
+import { isNotificationDuplicate } from '../shared/notification-dedup';
 import type { NotificationPopupData, PopupData } from '../shared/types';
 import { ClaudeWatchServer } from './server';
 import { TrayManager } from './tray';
@@ -23,6 +24,7 @@ let pendingPermission: PopupData | null = null;
 let pendingNotification: NotificationPopupData | null = null;
 const notificationQueue: NotificationPopupData[] = [];
 let currentView: 'permission' | 'notification' | 'none' = 'none';
+let currentNotification: NotificationPopupData | null = null;
 
 const WINDOW_WIDTH = 420;
 const WINDOW_HEIGHT = 320;
@@ -172,6 +174,7 @@ function showWindowPassive(): void {
 function hideWindow(): void {
   if (!mainWindow) return;
   currentView = 'none';
+  currentNotification = null;
   mainWindow.hide();
   unregisterGlobalShortcuts();
 }
@@ -196,6 +199,7 @@ function showPermission(data: PopupData): void {
   }
 
   currentView = 'permission';
+  currentNotification = null;
   mainWindow.webContents.send('permission-request', data);
   showWindowPassive();
 }
@@ -208,6 +212,9 @@ function showNotification(data: NotificationPopupData): void {
     pendingNotification = data;
     return;
   }
+
+  // ノンブロッキング通知の重複はスキップ
+  if (isNotificationDuplicate(data, currentNotification, currentView === 'notification', notificationQueue)) return;
 
   // パーミッションがアクティブに表示中なら通知をキューに入れる
   if (server?.getQueueLength() > 0 && mainWindow?.isVisible()) {
@@ -233,6 +240,7 @@ function displayNotification(data: NotificationPopupData): void {
   data.queueCount = notificationQueue.length + (server?.getQueueLength() ?? 0);
 
   currentView = 'notification';
+  currentNotification = data;
   mainWindow.webContents.send('notification', data);
   showWindowPassive();
 

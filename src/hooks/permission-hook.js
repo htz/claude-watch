@@ -527,6 +527,37 @@ function hasSuspiciousPattern(command) {
 }
 
 /**
+ * Bash コマンド引数にプロジェクト外の絶対パスが含まれるか判定する。
+ * Claude Code はプロジェクト外パスへのアクセスに対して追加のパーミッションチェックを行うため、
+ * allow リストで auto-allow する前にこれを検知して通知を送る必要がある。
+ *
+ * @param {string} command - Bash コマンド文字列
+ * @returns {boolean}
+ */
+function hasOutOfProjectPaths(command) {
+  const home = os.homedir();
+  const projectRoot = findProjectRoot(process.cwd()) || process.cwd();
+  const resolved = path.resolve(projectRoot);
+
+  // 絶対パスを抽出
+  const pathRegex = /(\/[\w.\-/~@]+)/g;
+  for (const m of command.matchAll(pathRegex)) {
+    const p = m[1];
+    // システム・一時パスは除外
+    if (p.startsWith('/dev/') || p === '/dev') continue;
+    if (p.startsWith('/tmp/') || p === '/tmp') continue;
+    if (p.startsWith('/private/tmp/')) continue;
+    // ホーム配下かつプロジェクト外 → true
+    if (p.startsWith(`${home}/`) || p === home) {
+      if (!p.startsWith(`${resolved}/`) && p !== resolved) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * コマンド文字列をパースして全サブコマンドを抽出する。
  * parser が初期化されていない場合は入力をそのまま返す (graceful degradation)。
  *
@@ -865,7 +896,15 @@ async function main() {
         ? matchesCommandPattern(command, perms.allow.bashPatterns)
         : matchesToolPattern(toolName, perms.allow.toolPatterns);
 
-    if (isAllowed) process.exit(0);
+    if (isAllowed) {
+      if (toolName === 'Bash' && hasOutOfProjectPaths(command)) {
+        const appRunning = await healthCheck();
+        if (appRunning) {
+          await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
+        }
+      }
+      process.exit(0);
+    }
   }
 
   // ask リスト、またはどのリストにも含まれない → ポップアップ表示へ進む
@@ -877,6 +916,12 @@ async function main() {
   if (toolName === 'Bash' && command) {
     const { unmatched, hasUnresolvable } = extractUnmatchedCommands(command, perms.allow.bashPatterns);
     if (!isAskListed && unmatched.length === 0 && !hasUnresolvable) {
+      if (hasOutOfProjectPaths(command)) {
+        const appRunning = await healthCheck();
+        if (appRunning) {
+          await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
+        }
+      }
       process.exit(0);
     }
     unmatchedCommands = { commands: unmatched, hasUnresolvable };
@@ -940,5 +985,6 @@ module.exports = {
   containsSuspiciousNode,
   hasStringLevelSuspiciousPattern,
   hasSuspiciousPattern,
+  hasOutOfProjectPaths,
   initTreeSitter,
 };

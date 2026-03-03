@@ -18,6 +18,7 @@ const {
   parseAndExtractCommands,
   hasStringLevelSuspiciousPattern,
   hasSuspiciousPattern,
+  hasOutOfProjectPaths,
   initTreeSitter,
 } = require('../src/hooks/permission-hook');
 
@@ -1461,5 +1462,76 @@ describe('hasStringLevelSuspiciousPattern', () => {
   });
   it('should return false for simple chained commands', () => {
     expect(hasStringLevelSuspiciousPattern('npm install && npm test')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasOutOfProjectPaths — プロジェクト外パス検知
+// ---------------------------------------------------------------------------
+describe('hasOutOfProjectPaths', () => {
+  beforeEach(() => {
+    // mock homedir to /Users/testuser
+    vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
+    // mock cwd to /Users/testuser/projects/my-app
+    vi.spyOn(process, 'cwd').mockReturnValue('/Users/testuser/projects/my-app');
+    // mock fs.existsSync: .claude exists at project root
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: string) => {
+      if (p === '/Users/testuser/projects/my-app/.claude') return true;
+      return false;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should return true for out-of-project path under home', () => {
+    expect(hasOutOfProjectPaths('ls -la /Users/testuser/other-project/terraform/')).toBe(true);
+  });
+
+  it('should return true for home directory itself', () => {
+    expect(hasOutOfProjectPaths('ls /Users/testuser')).toBe(true);
+  });
+
+  it('should return false for in-project path', () => {
+    expect(hasOutOfProjectPaths('ls -la /Users/testuser/projects/my-app/src/')).toBe(false);
+  });
+
+  it('should return false for project root itself', () => {
+    expect(hasOutOfProjectPaths('ls /Users/testuser/projects/my-app')).toBe(false);
+  });
+
+  it('should return false for /dev/null (system path)', () => {
+    expect(hasOutOfProjectPaths('echo hello 2>/dev/null')).toBe(false);
+  });
+
+  it('should return false for /tmp/ (temp path)', () => {
+    expect(hasOutOfProjectPaths('ls /tmp/somefile')).toBe(false);
+  });
+
+  it('should return false for /private/tmp/ (macOS temp path)', () => {
+    expect(hasOutOfProjectPaths('ls /private/tmp/somefile')).toBe(false);
+  });
+
+  it('should return false for path outside home (/usr/bin/node)', () => {
+    expect(hasOutOfProjectPaths('which /usr/bin/node')).toBe(false);
+  });
+
+  it('should return true for compound command with in-project + out-of-project path', () => {
+    expect(
+      hasOutOfProjectPaths('ls /Users/testuser/projects/my-app/src && cat /Users/testuser/Documents/secret.txt'),
+    ).toBe(true);
+  });
+
+  it('should return false when only /dev/null redirect is present', () => {
+    expect(hasOutOfProjectPaths('ls -la 2>/dev/null || echo "not found"')).toBe(false);
+  });
+
+  it('should return false for command with no absolute paths', () => {
+    expect(hasOutOfProjectPaths('git status && npm test')).toBe(false);
+  });
+
+  it('should return false for relative paths', () => {
+    expect(hasOutOfProjectPaths('cat ./src/main.ts')).toBe(false);
   });
 });

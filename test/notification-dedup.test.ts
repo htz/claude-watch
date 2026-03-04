@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { isNotificationDuplicate, isSameNotification } from '../src/shared/notification-dedup';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  clearRecentNotifications,
+  isNotificationDuplicate,
+  isSameNotification,
+  recordNotificationShown,
+} from '../src/shared/notification-dedup';
 import type { NotificationPopupData } from '../src/shared/types';
 
 /** テスト用のヘルパー: NotificationPopupData を生成 */
@@ -59,6 +64,15 @@ describe('isSameNotification', () => {
 });
 
 describe('isNotificationDuplicate', () => {
+  beforeEach(() => {
+    clearRecentNotifications();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('question タイプ', () => {
     it('question タイプは常に重複とみなさない', () => {
       const data = makeNotification({ type: 'question' });
@@ -77,7 +91,7 @@ describe('isNotificationDuplicate', () => {
       expect(isNotificationDuplicate(data, current, true, [])).toBe(true);
     });
 
-    it('通知が表示中でなければ重複判定しない', () => {
+    it('通知が表示中でなければ重複判定しない（時間ベースも未記録）', () => {
       const data = makeNotification();
       const current = makeNotification();
 
@@ -191,6 +205,58 @@ describe('isNotificationDuplicate', () => {
       const queue = [makeNotification({ type: 'info' })];
 
       expect(isNotificationDuplicate(data, null, false, queue)).toBe(false);
+    });
+  });
+
+  describe('時間ベース重複排除', () => {
+    it('冷却期間内に同一通知を表示済みなら重複', () => {
+      const data = makeNotification();
+      recordNotificationShown(data);
+
+      // 現在表示中でもキューにも無いが、最近表示済み
+      expect(isNotificationDuplicate(data, null, false, [])).toBe(true);
+    });
+
+    it('冷却期間 (30秒) 経過後は重複とみなさない', () => {
+      const data = makeNotification();
+      recordNotificationShown(data);
+
+      vi.advanceTimersByTime(30_001);
+
+      expect(isNotificationDuplicate(data, null, false, [])).toBe(false);
+    });
+
+    it('異なるプロジェクトの同一メッセージは重複しない', () => {
+      const shown = makeNotification({ projectName: 'project-a' });
+      recordNotificationShown(shown);
+
+      const incoming = makeNotification({ projectName: 'project-b' });
+      expect(isNotificationDuplicate(incoming, null, false, [])).toBe(false);
+    });
+
+    it('異なるメッセージは時間ベースで重複しない', () => {
+      recordNotificationShown(makeNotification({ message: 'A' }));
+
+      const incoming = makeNotification({ message: 'B' });
+      expect(isNotificationDuplicate(incoming, null, false, [])).toBe(false);
+    });
+
+    it('question タイプは時間ベース重複排除の対象外', () => {
+      const data = makeNotification({ type: 'question' });
+      recordNotificationShown(data);
+
+      expect(isNotificationDuplicate(data, null, false, [])).toBe(false);
+    });
+
+    it('clearRecentNotifications で履歴がクリアされる', () => {
+      const data = makeNotification();
+      recordNotificationShown(data);
+
+      expect(isNotificationDuplicate(data, null, false, [])).toBe(true);
+
+      clearRecentNotifications();
+
+      expect(isNotificationDuplicate(data, null, false, [])).toBe(false);
     });
   });
 });

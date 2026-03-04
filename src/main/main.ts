@@ -3,7 +3,7 @@ import { setLocale } from '@i18n';
 import { app, BrowserWindow, globalShortcut, ipcMain, session } from 'electron';
 import fs from 'fs';
 import { CONFIG_PATH, SOCKET_DIR } from '../shared/constants';
-import { isNotificationDuplicate } from '../shared/notification-dedup';
+import { isNotificationDuplicate, recordNotificationShown } from '../shared/notification-dedup';
 import type { NotificationPopupData, PopupData } from '../shared/types';
 import { ClaudeWatchServer } from './server';
 import { TrayManager } from './tray';
@@ -241,6 +241,7 @@ function displayNotification(data: NotificationPopupData): void {
 
   currentView = 'notification';
   currentNotification = data;
+  recordNotificationShown(data);
   mainWindow.webContents.send('notification', data);
   showWindowPassive();
 

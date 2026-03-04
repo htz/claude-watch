@@ -872,13 +872,8 @@ async function main() {
   if (perms.bypassPermissions) process.exit(0);
 
   // Claude Code のコマンドインジェクション検知 (tengu) に該当するパターン
-  // → allow/ask リストより先に判定 (allow で抜けると通知が飛ばない問題の修正)
-  // → ポップアップではなく通知 + フォールスルーで Claude Code に委譲
+  // → Claude Code 本体に委譲。通知は送らない (Claude Code が実際にダイアログを出すとは限らないため)
   if (toolName === 'Bash' && command && hasSuspiciousPattern(command)) {
-    const appRunning = await healthCheck();
-    if (appRunning) {
-      await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
-    }
     process.exit(0);
   }
 
@@ -897,12 +892,6 @@ async function main() {
         : matchesToolPattern(toolName, perms.allow.toolPatterns);
 
     if (isAllowed) {
-      if (toolName === 'Bash' && hasOutOfProjectPaths(command)) {
-        const appRunning = await healthCheck();
-        if (appRunning) {
-          await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
-        }
-      }
       process.exit(0);
     }
   }
@@ -916,12 +905,6 @@ async function main() {
   if (toolName === 'Bash' && command) {
     const { unmatched, hasUnresolvable } = extractUnmatchedCommands(command, perms.allow.bashPatterns);
     if (!isAskListed && unmatched.length === 0 && !hasUnresolvable) {
-      if (hasOutOfProjectPaths(command)) {
-        const appRunning = await healthCheck();
-        if (appRunning) {
-          await sendNotification(t('hook.suspiciousNotification'), 'Claude Code', 'info');
-        }
-      }
       process.exit(0);
     }
     unmatchedCommands = { commands: unmatched, hasUnresolvable };

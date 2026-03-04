@@ -17,7 +17,7 @@ const config: ForgeConfig = {
     },
     extraResource: ['./src/hooks', './src/i18n', './assets', './node_modules/web-tree-sitter'],
   },
-  makers: [new MakerZIP({}, ['darwin']), new MakerDMG({})],
+  makers: [new MakerZIP({}, ['darwin']), new MakerDMG({ name: 'ClaudeWatch' })],
   plugins: [
     new WebpackPlugin({
       mainConfig,
